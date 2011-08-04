@@ -72,11 +72,11 @@ enum lv1_atapi_in_out {
 };
 
 
-static unsigned int region_flags[] =
+static unsigned long region_flags[] =
 {
 	0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 };
-module_param_array(region_flags, uint, NULL, S_IRUGO);
+module_param_array(region_flags, ulong, NULL, S_IRUGO);
 MODULE_PARM_DESC(region_flags, "Region flags");
 
 

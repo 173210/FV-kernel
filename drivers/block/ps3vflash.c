@@ -53,11 +53,11 @@ static const struct block_device_operations ps3vflash_fops = {
 };
 
 
-static unsigned int region_flags[] =
+static unsigned long region_flags[] =
 {
 	0x6, 0x2, 0x4, 0x4, 0x4, 0x0, 0x2, 0x0,
 };
-module_param_array(region_flags, uint, NULL, S_IRUGO);
+module_param_array(region_flags, ulong, NULL, S_IRUGO);
 MODULE_PARM_DESC(region_flags, "Region flags");
 
 
