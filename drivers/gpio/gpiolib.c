@@ -11,8 +11,9 @@
 #include <linux/of_gpio.h>
 #include <linux/idr.h>
 #include <linux/slab.h>
-
-
+//#include <mach/iomux-mx53.h>
+#include <mach/iomux-v3.h>
+extern iomux_conf mx53_fv40_full_pad[1170];
 /* Optional implementation infrastructure for GPIO interfaces.
  *
  * Platforms may want to use this if they tend to use very many GPIOs
@@ -47,6 +48,7 @@ static DEFINE_SPINLOCK(gpio_lock);
 struct gpio_desc {
 	struct gpio_chip	*chip;
 	unsigned long		flags;
+	iomux_conf		*pad_iomux;	
 /* flag symbols are bit numbers */
 #define FLAG_REQUESTED	0
 #define FLAG_IS_OUT	1
@@ -550,7 +552,45 @@ static const struct attribute *gpio_attrs[] = {
 static const struct attribute_group gpio_attr_group = {
 	.attrs = (struct attribute **) gpio_attrs,
 };
+static ssize_t gpio_padctrl_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	const struct gpio_desc	*desc = dev_get_drvdata(dev);
+	ssize_t			status;
+	iomux_v3_cfg_t Tpad = desc->pad_iomux->pad;
+	mutex_lock(&sysfs_lock);
+	if (!test_bit(FLAG_EXPORT, &desc->flags))
+		status = -EIO;
+	else {
+               status =  mxc_iomux_v3_get_pad(&Tpad);
+                printk("IOMUX: %s   MUX_PAD_CTRL: 0x%llx\n",desc->pad_iomux->pad_name,
+                                (Tpad&MUX_PAD_CTRL_MASK)>>MUX_PAD_CTRL_SHIFT);
+	}
+	mutex_unlock(&sysfs_lock);
+	return status;
+}
 
+static ssize_t gpio_padctrl_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct gpio_desc	*desc = dev_get_drvdata(dev);
+	ssize_t			status;
+	iomux_v3_cfg_t Tpad = desc->pad_iomux->pad;
+	u32 pad_ctrl =(u32)simple_strtoul(buf, NULL, 16);
+	Tpad &= ~MUX_PAD_CTRL_MASK;
+	Tpad |= MUX_PAD_CTRL(pad_ctrl);
+	mutex_lock(&sysfs_lock);
+	if (!test_bit(FLAG_EXPORT, &desc->flags))
+		status = -EIO;
+	else {
+		mxc_iomux_v3_setup_pad(Tpad);
+	}
+	mutex_unlock(&sysfs_lock);
+	status = size;
+	return status;
+}
+
+static DEVICE_ATTR(padctrl, 0644, gpio_padctrl_show, gpio_padctrl_store);
 /*
  * /sys/class/gpio/gpiochipN/
  *   /base ... matching gpio_chip.base (N)
@@ -700,7 +740,9 @@ int gpio_export(unsigned gpio, bool direction_may_change)
 	struct gpio_desc	*desc;
 	int			status = -EINVAL;
 	const char		*ioname = NULL;
-
+	u8 gpiogrp;
+	u8 gpiombr;
+	int i;
 	/* can't export until sysfs is available ... */
 	if (!gpio_class.p) {
 		pr_debug("%s: called too early!\n", __func__);
@@ -728,9 +770,27 @@ int gpio_export(unsigned gpio, bool direction_may_change)
 
 	if (status == 0) {
 		struct device	*dev;
-
+		char buf[10];
 		dev = device_create(&gpio_class, desc->chip->dev, MKDEV(0, 0),
 				desc, ioname ? ioname : "gpio%u", gpio);
+		gpiogrp =(u8) (gpio / 32 +1);
+		gpiombr =(u8) (gpio -(gpiogrp-1)*32);
+		sprintf(buf,"__GPIO%u_%u",gpiogrp,gpiombr);
+		printk("%s\n",buf);
+		status = -EINVAL;
+		for(i = 0; i< ARRAY_SIZE(mx53_fv40_full_pad); i++)
+		{
+			if(strstr(mx53_fv40_full_pad[i].pad_name,buf)==NULL)
+				continue;	
+			desc->pad_iomux =&mx53_fv40_full_pad[i];
+			status =0;
+			break;
+		}
+		if(status)
+		{
+			printk(KERN_ERR"%s GPIO doesn't find in configured list!\n",__func__);
+			goto done;
+		}
 		if (!IS_ERR(dev)) {
 			status = sysfs_create_group(&dev->kobj,
 						&gpio_attr_group);
@@ -745,7 +805,9 @@ int gpio_export(unsigned gpio, bool direction_may_change)
 							&desc->flags)))
 				status = device_create_file(dev,
 						&dev_attr_edge);
-
+			if(!status)
+				status =device_create_file(dev,
+						&dev_attr_padctrl);
 			if (status != 0)
 				device_unregister(dev);
 		} else
@@ -1711,8 +1773,8 @@ static int gpiolib_show(struct seq_file *s, void *unused)
 	unsigned		gpio;
 	int			started = 0;
 
+    	mxc_iomux_v3_scan_pads_confs(mx53_fv40_full_pad, ARRAY_SIZE(mx53_fv40_full_pad));
 	/* REVISIT this isn't locked against gpio_chip removal ... */
-
 	for (gpio = 0; gpio_is_valid(gpio); gpio++) {
 		struct device *dev;
 

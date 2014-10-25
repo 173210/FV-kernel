@@ -54,7 +54,10 @@
 */
 
 typedef u64 iomux_v3_cfg_t;
-
+typedef struct {
+        iomux_v3_cfg_t pad;
+        char *pad_name;
+}iomux_conf;
 #define MUX_CTRL_OFS_SHIFT	0
 #define MUX_CTRL_OFS_MASK	((iomux_v3_cfg_t)0xfff << MUX_CTRL_OFS_SHIFT)
 #define MUX_PAD_CTRL_OFS_SHIFT	12
@@ -68,6 +71,12 @@ typedef u64 iomux_v3_cfg_t;
 #define MUX_PAD_CTRL_MASK	((iomux_v3_cfg_t)0x3ffff << MUX_PAD_CTRL_SHIFT)
 #define MUX_SEL_INPUT_SHIFT	59
 #define MUX_SEL_INPUT_MASK	((iomux_v3_cfg_t)0xf << MUX_SEL_INPUT_SHIFT)
+
+#define PULL_UP_75K	0x1d4	
+#define PULL_UP_100K	0x1e4
+#define PULL_UP_22K	0x1f4
+#define PULL_DOWN_360K	0x1c4
+#define MUX_PAD_CTRL_GPIO	PULL_UP_100K
 
 #define MUX_PAD_CTRL(x)		((iomux_v3_cfg_t)(x) << MUX_PAD_CTRL_SHIFT)
 
@@ -160,12 +169,14 @@ int mxc_iomux_v3_setup_pad(iomux_v3_cfg_t pad);
  * setups mutliple pads
  * convenient way to call the above function with tables
  */
+int mxc_iomux_v3_get_multiple_pads(iomux_v3_cfg_t *pad_list, unsigned count);
 int mxc_iomux_v3_setup_multiple_pads(iomux_v3_cfg_t *pad_list, unsigned count);
-
+int mxc_iomux_v3_scan_pads_confs(iomux_conf *pad_set_list, unsigned count);
 /*
  * Initialise the iomux controller
  */
 void mxc_iomux_v3_init(void __iomem *iomux_v3_base);
+int mxc_iomux_v3_get_pad(iomux_v3_cfg_t *pad);
 
 /*
  * Set bits for general purpose registers

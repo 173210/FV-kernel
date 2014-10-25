@@ -20,7 +20,9 @@
 #include <linux/pwm.h>
 #include <linux/pwm_backlight.h>
 #include <linux/slab.h>
-
+#include <linux/delay.h>
+#include <linux/earlysuspend.h>
+static int pwm_suspend=0; //背光是否进入early_suspend, 若进入不再允许进行调整
 struct pwm_bl_data {
 	struct pwm_device	*pwm;
 	struct device		*dev;
@@ -28,6 +30,9 @@ struct pwm_bl_data {
 	unsigned int		lth_brightness;
 	int			(*notify)(struct device *,
 					  int brightness);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	struct early_suspend early_suspend;
+#endif
 };
 
 static int pwm_backlight_update_status(struct backlight_device *bl)
@@ -41,10 +46,12 @@ static int pwm_backlight_update_status(struct backlight_device *bl)
 
 	if (bl->props.fb_blank != FB_BLANK_UNBLANK)
 		brightness = 0;
-
+#if 0
 	if (pb->notify)
 		brightness = pb->notify(pb->dev, brightness);
-
+#endif
+	if (pwm_suspend)
+		return 1;
 	if (brightness == 0) {
 		pwm_config(pb->pwm, 0, pb->period);
 		pwm_disable(pb->pwm);
@@ -80,6 +87,31 @@ static const struct backlight_ops pwm_backlight_ops = {
 	.get_brightness	= pwm_backlight_get_brightness,
 	.check_fb = pwm_backlight_check_fb,
 };
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void pwm_backlight_early_suspend(struct early_suspend *handler)
+{
+	struct pwm_bl_data *pb;
+	pb = container_of(handler, struct pwm_bl_data, early_suspend);
+	if (pb->notify)
+		pb->notify(pb->dev, 0);
+//	pwm_config(pb->pwm, 0, pb->period);
+//	pwm_disable(pb->pwm);
+	pwm_suspend = 1;
+	return ;
+}
+static void pwm_backlight_later_resume(struct early_suspend *handler)
+{
+	struct pwm_bl_data *pb;
+	struct platform_device *pdev;
+	struct backlight_device *bl;
+	pb = container_of(handler, struct pwm_bl_data, early_suspend);
+	pdev = to_platform_device(pb->dev);
+	bl = platform_get_drvdata(pdev);
+	pwm_suspend=0;
+	backlight_update_status(bl);
+	return ;
+}
+#endif
 
 static int pwm_backlight_probe(struct platform_device *pdev)
 {
@@ -88,7 +120,6 @@ static int pwm_backlight_probe(struct platform_device *pdev)
 	struct backlight_device *bl;
 	struct pwm_bl_data *pb;
 	int ret;
-
 	if (!data) {
 		dev_err(&pdev->dev, "failed to find platform data\n");
 		return -EINVAL;
@@ -123,6 +154,12 @@ static int pwm_backlight_probe(struct platform_device *pdev)
 
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.max_brightness = data->max_brightness;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	pb->early_suspend.suspend = pwm_backlight_early_suspend;
+	pb->early_suspend.resume  = pwm_backlight_later_resume;
+	pb->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
+	register_early_suspend(&pb->early_suspend);
+#endif
 	bl = backlight_device_register(dev_name(&pdev->dev), &pdev->dev, pb,
 				       &pwm_backlight_ops, &props);
 	if (IS_ERR(bl)) {
@@ -158,12 +195,26 @@ static int pwm_backlight_remove(struct platform_device *pdev)
 	pwm_disable(pb->pwm);
 	pwm_free(pb->pwm);
 	kfree(pb);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	if(pb->early_suspend.suspend)
+	unregister_early_suspend(&pb->early_suspend);
+#endif
 	if (data->exit)
 		data->exit(&pdev->dev);
 	return 0;
 }
 
 #ifdef CONFIG_PM
+static void pwm_backlight_shutdown(struct platform_device *pdev)
+{
+	struct backlight_device *bl = platform_get_drvdata(pdev);
+	struct pwm_bl_data *pb = dev_get_drvdata(&bl->dev);
+
+	pwm_config(pb->pwm, 0, pb->period);
+	pwm_disable(pb->pwm);
+}
+
+#ifndef CONFIG_HAS_EARLYSUSPEND
 static int pwm_backlight_suspend(struct platform_device *pdev,
 				 pm_message_t state)
 {
@@ -184,6 +235,7 @@ static int pwm_backlight_resume(struct platform_device *pdev)
 	backlight_update_status(bl);
 	return 0;
 }
+#endif
 #else
 #define pwm_backlight_suspend	NULL
 #define pwm_backlight_resume	NULL
@@ -196,13 +248,17 @@ static struct platform_driver pwm_backlight_driver = {
 	},
 	.probe		= pwm_backlight_probe,
 	.remove		= pwm_backlight_remove,
+	.shutdown	= pwm_backlight_shutdown, 
+#ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend	= pwm_backlight_suspend,
 	.resume		= pwm_backlight_resume,
+#endif
 };
-
 static int __init pwm_backlight_init(void)
 {
-	return platform_driver_register(&pwm_backlight_driver);
+	int ret;
+	ret = platform_driver_register(&pwm_backlight_driver);
+	return ret;
 }
 module_init(pwm_backlight_init);
 

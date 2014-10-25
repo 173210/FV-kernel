@@ -221,6 +221,12 @@ int da9053_restore_volt_settings(void)
 	}
 	clk_enable(i2c_clk);
 
+	/* USB vbus no voltage after suspend/resume.
+	 * Root cause: USB phy 2.5V voltage is off after suspend/resume
+	 *             using last BB ver OTP Dialog chip
+	 * Solution: Enter suspend, R35 = 0x50
+	 *           Leave suspend, R35 = 0x55, R60 = 0x60
+	 */
 	pm_da9053_write_reg(DA9052_ID1213_REG, BUCKPERI_RESTORE_SW_STEP);
 	pm_da9053_read_reg(DA9052_SUPPLY_REG, &data);
 	data |= SUPPLY_RESTORE_VPERISW_EN;

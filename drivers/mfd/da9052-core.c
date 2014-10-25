@@ -48,6 +48,43 @@ void da9052_unlock(struct da9052 *da9052)
 }
 EXPORT_SYMBOL(da9052_unlock);
 
+int da9052_read(struct da9052 *da9052, u8 reg_address, u8 *reg_data)
+{
+	struct da9052_ssc_msg msg;
+	int ret;
+
+	msg.addr = reg_address;
+	msg.data = 0;
+
+	da9052_lock(da9052);
+	ret = da9052->read(da9052, &msg);
+	if (ret)
+		goto ssc_comm_err;
+	da9052_unlock(da9052);
+
+	*reg_data = msg.data;
+	return 0;
+
+ssc_comm_err:
+	da9052_unlock(da9052);
+	return ret;
+}
+
+int da9052_write(struct da9052 *da9052, u8 reg_address, u8 val)
+{
+	int ret;
+	struct da9052_ssc_msg msg;
+
+	msg.addr = reg_address;
+	msg.data = val;
+
+	da9052_lock(da9052);
+	ret = da9052->write(da9052, &msg);
+	da9052_unlock(da9052);
+
+	return ret;
+}
+
 int da9052_ssc_write(struct da9052 *da9052, struct da9052_ssc_msg *sscmsg)
 {
 	int ret = 0;
@@ -81,9 +118,9 @@ int da9052_ssc_read(struct da9052 *da9052, struct da9052_ssc_msg *sscmsg)
 
 	/* Reg addr should be a valid address on PAGE0 or PAGE1 */
 	if ((sscmsg->addr < DA9052_PAGE0_REG_START) ||
-	(sscmsg->addr > DA9052_PAGE1_REG_END) ||
-	((sscmsg->addr > DA9052_PAGE0_REG_END) &&
-	(sscmsg->addr < DA9052_PAGE1_REG_START)))
+	    (sscmsg->addr > DA9052_PAGE1_REG_END) ||
+	    ((sscmsg->addr > DA9052_PAGE0_REG_END) &&
+	     (sscmsg->addr < DA9052_PAGE1_REG_START)))
 		return INVALID_REGISTER;
 
 	/*
@@ -96,7 +133,6 @@ int da9052_ssc_read(struct da9052 *da9052, struct da9052_ssc_msg *sscmsg)
 	if (da9052->ssc_cache[sscmsg->addr].status == VALID) {
 		/* We have valid cached value, copy this value */
 		sscmsg->data = da9052->ssc_cache[sscmsg->addr].val;
-
 		return 0;
 	}
 
@@ -448,7 +484,7 @@ int da9052_ssc_init(struct da9052 *da9052)
 		INIT_LIST_HEAD(&(eve_nb_array[cnt].nb_list));
 
 	/* Initialize mutex required for ADC Manual read */
-	mutex_init(&manconv_lock);
+	mutex_init(&da9052->manconv_lock);
 
 	/* Initialize NB array lock */
 	sema_init(&eve_nb_array_lock, 1);
@@ -487,11 +523,75 @@ int da9052_ssc_init(struct da9052 *da9052)
 
 	INIT_WORK(&da9052->eh_isr_work, eh_workqueue_isr);
 
+	/* mask A */
 	ssc_msg.addr = DA9052_IRQMASKA_REG;
-	ssc_msg.data = 0xff;
+	ssc_msg.data = 0xff & ~(DA9052_IRQMASKA_MVBUSVLD |
+				DA9052_IRQMASKA_MVBUSREM |
+				DA9052_IRQMASKA_MVDDLOW);
 	da9052->write(da9052, &ssc_msg);
+	/* mask B */
+	ssc_msg.addr = DA9052_IRQMASKB_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data |= DA9052_IRQMASKB_MTSIREADY;
+	ssc_msg.data &= ~DA9052_IRQMASKB_MCHGEND;
+	da9052->write(da9052, &ssc_msg);
+	/* mask C */
 	ssc_msg.addr = DA9052_IRQMASKC_REG;
 	ssc_msg.data = 0xff;
+	da9052->write(da9052, &ssc_msg);
+
+	/* GPIO0,1,2,3,4,5,6, 9, 10, 12 */
+
+	ssc_msg.addr = DA9052_GPIO0001_REG;
+	ssc_msg.data = 0xaa;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0203_REG;
+	ssc_msg.data = 0xaa;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0405_REG;
+	ssc_msg.data = 0xaa;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0607_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0xf0;
+	ssc_msg.data |= 0x0a;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0809_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0x0f;
+	ssc_msg.data |= 0xa0;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0809_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0xf0;
+	ssc_msg.data |= 0x0a;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_GPIO0809_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0xf0;
+	ssc_msg.data |= 0x0a;
+	da9052->write(da9052, &ssc_msg);
+
+	/* origin value: LDO0 STEP=0, LDO6 STEP=15
+	 * and they do not cut off after shutdown.
+	 * Put them into SYSTEM domain LDO1 step = 1, LDO6 step = 2
+	 */
+	ssc_msg.addr = DA9052_ID01_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0x0f;
+	ssc_msg.data |= 0x20;
+	da9052->write(da9052, &ssc_msg);
+
+	ssc_msg.addr = DA9052_ID67_REG;
+	da9052->read(da9052, &ssc_msg);
+	ssc_msg.data &= 0xf0;
+	ssc_msg.data |= 0x02;
 	da9052->write(da9052, &ssc_msg);
 
 	/* read chip version */
@@ -504,6 +604,9 @@ int da9052_ssc_init(struct da9052 *da9052)
 	} else if ((ssc_msg.data & DA9052_CHIPID_MRC) == 0xa0) {
 		da9052->chip_version = DA9053_VERSION_BB;
 		pr_info("BB version probed\n");
+	} else if ((ssc_msg.data & DA9052_CHIPID_MRC) == 0xb0) { //GSL version chip id should be 0xb3
+		da9052->chip_version = DA9053_VERSION_GSL;
+		pr_info("GSL version probed, GSL version is based BB version\n");
 	} else {
 		da9052->chip_version = 0;
 		pr_info("unknown chip version\n");
@@ -521,7 +624,7 @@ int da9052_ssc_init(struct da9052 *da9052)
 void da9052_ssc_exit(struct da9052 *da9052)
 {
 	printk(KERN_INFO "DA9052: Unregistering SSC device.\n");
-	mutex_destroy(&manconv_lock);
+	mutex_destroy(&da9052->manconv_lock);
 	/* Restore IRQ line */
 	da9052_eh_restore_irq(da9052);
 	free_irq(da9052->irq, NULL);
@@ -534,16 +637,35 @@ void da9053_power_off(void)
 {
 	struct da9052_ssc_msg ssc_msg;
 	struct da9052_ssc_msg ssc_msg_dummy[2];
+
 	if (!da9052_data)
 		return;
+
+	/* Disable LDO1 */
+	ssc_msg.addr = DA9052_LDO1_REG;
+	ssc_msg.data = 0x00;
+	da9052_data->write(da9052_data, &ssc_msg);
+
+	/* Disable DA9053 rtc irq */
+	ssc_msg.addr = DA9052_ALARMY_REG;
+	da9052_data->read(da9052_data, &ssc_msg);
+	ssc_msg.data &= ~(DA9052_ALARMY_ALARMON|DA9052_ALARMY_TICKON);
+	da9052_data->write(da9052_data, &ssc_msg);
 
 	ssc_msg.addr = DA9052_CONTROLB_REG;
 	da9052_data->read(da9052_data, &ssc_msg);
 	ssc_msg_dummy[0].addr = DA9052_CONTROLB_REG;
 	ssc_msg_dummy[0].data = ssc_msg.data | DA9052_CONTROLB_SHUTDOWN;
+
+	/* shutdown with R15[7] is instable.
+	 * A solution: set R15[7](shutdown bit) and then
+	 *             issue a dummy write 0 to R8e(R142)
+	 */
 	ssc_msg_dummy[1].addr = DA9052_GPID9_REG;
 	ssc_msg_dummy[1].data = 0;
-	da9052_data->write_many(da9052_data, &ssc_msg_dummy[0], 2);
+
+	da9052_data->write_many(da9052_data,
+				&ssc_msg_dummy[0], ARRAY_SIZE(ssc_msg_dummy));
 }
 
 int da9053_get_chip_version(void)

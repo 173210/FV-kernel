@@ -926,3 +926,21 @@ void usb_host_set_wakeup(struct device *wkup_dev, bool para)
 		pdata->wake_up_enable(pdata, para);
 }
 EXPORT_SYMBOL(usb_host_set_wakeup);
+
+#define LS_SE0		0
+#define LS_J		2
+#define LS_K		1
+int usb_detected_by_line_status(void)
+{
+	uint32_t reg = UOG_PORTSC1;
+
+	switch ((reg >> 10) & 3) {
+	case LS_SE0:
+	case LS_J:
+	case LS_K:
+		return 1;
+	}
+
+	return 0;
+}
+

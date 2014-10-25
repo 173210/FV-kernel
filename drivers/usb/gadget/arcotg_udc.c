@@ -52,7 +52,6 @@
 #include "arcotg_udc.h"
 #include <mach/arc_otg.h>
 #include <mach/iram.h>
-
 #define	DRIVER_DESC	"ARC USBOTG Device Controller driver"
 #define	DRIVER_AUTHOR	"Freescale Semiconductor"
 #define	DRIVER_VERSION	"1 August 2005"
@@ -2183,18 +2182,18 @@ bool try_wake_up_udc(struct fsl_udc *udc)
 	u32 irq_src;
 
 	pdata = udc->pdata;
-
 	/* check if Vbus change irq */
 	irq_src = fsl_readl(&dr_regs->otgsc) & (~OTGSC_ID_CHANGE_IRQ_STS);
+//	printk("otgsc = 0x%08x\n",irq_src);
 	if (irq_src & OTGSC_B_SESSION_VALID_IRQ_STS) {
 		u32 tmp;
 		/* Only handle device interrupt event
 		 * For mx53 loco board, the debug ID value is 0 and
 		 * DO NOT support OTG function
 		 */
-		if (!machine_is_mx53_loco())
-			if (!(fsl_readl(&dr_regs->otgsc) & OTGSC_STS_USB_ID))
-				return false;
+//		if (!machine_is_mx53_loco())
+//			if (!(fsl_readl(&dr_regs->otgsc) & OTGSC_STS_USB_ID))
+//				return false;
 
 		fsl_writel(irq_src, &dr_regs->otgsc);
 
@@ -2244,11 +2243,10 @@ static irqreturn_t fsl_udc_irq(int irq, void *_udc)
 	unsigned long flags;
 	struct fsl_usb2_platform_data *pdata = udc->pdata;
 
+	//printk("fsl_udc_irq\n");
 	if (pdata->irq_delay)
 		return status;
-
 	spin_lock_irqsave(&udc->lock, flags);
-
 #ifdef CONFIG_USB_OTG
 	/* if no gadget register in this driver, we need do noting */
 	if (udc->transceiver->gadget == NULL) {
@@ -2256,12 +2254,14 @@ static irqreturn_t fsl_udc_irq(int irq, void *_udc)
 	}
 	/* only handle device interrupt event */
 	if (!(fsl_readl(&dr_regs->otgsc) & OTGSC_STS_USB_ID)) {
+	//	printk("!(fsl_readl(&dr_regs->otgsc) & OTGSC_STS_USB_ID)\n");
 		goto irq_end;
 	}
 #endif
 	if (try_wake_up_udc(udc) == false) {
 		goto irq_end;
 	}
+
 	irq_src = fsl_readl(&dr_regs->usbsts) & fsl_readl(&dr_regs->usbintr);
 	/* Clear notification bits */
 	fsl_writel(irq_src, &dr_regs->usbsts);
@@ -3310,7 +3310,7 @@ out:
 
 	return 0;
 }
-
+//extern struct android_dev *_android_dev;
 /*-----------------------------------------------------------------
  * Modify Power management attributes
  * Used by OTG statemachine to disable gadget temporarily
@@ -3318,6 +3318,8 @@ out:
 static int fsl_udc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	int ret;
+//	char *disconnected[2] = { "USB_STATE=DISCONNECTED", NULL };
+//	char **uevent_envp = disconnected;
 	printk(KERN_DEBUG "udc suspend begins\n");
 #ifdef CONFIG_USB_OTG
 	if (udc_controller->transceiver->gadget == NULL)
@@ -3335,6 +3337,7 @@ static int fsl_udc_suspend(struct platform_device *pdev, pm_message_t state)
 	dr_clk_gate(false);
 
 	printk(KERN_DEBUG "USB Gadget suspend ends\n");
+// 	kobject_uevent_env(&_android_dev->dev->kobj, KOBJ_CHANGE, uevent_envp);
 	return ret;
 }
 

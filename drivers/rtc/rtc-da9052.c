@@ -16,7 +16,7 @@
 #include <linux/mfd/da9052/reg.h>
 #include <linux/mfd/da9052/rtc.h>
 
-#define DRIVER_NAME "da9052-rtc"
+#define DRIVER_NAME 	"da9052-rtc"
 #define ENABLE		1
 #define DISABLE		0
 
@@ -32,10 +32,11 @@ struct da9052_rtc {
 
 static int da9052_rtc_enable_alarm(struct da9052 *da9052, unsigned char flag);
 
-void da9052_rtc_notifier(struct da9052_eh_nb *eh_data, unsigned int event)
+static void da9052_rtc_notifier(struct da9052_eh_nb *eh_data,
+				unsigned int event)
 {
 	struct da9052_rtc *rtc =
-		container_of(eh_data, struct da9052_rtc, eh_data);
+	container_of(eh_data, struct da9052_rtc, eh_data);
 	struct da9052_ssc_msg msg;
 	unsigned int ret;
 
@@ -51,6 +52,7 @@ void da9052_rtc_notifier(struct da9052_eh_nb *eh_data, unsigned int event)
 
 	da9052_unlock(rtc->da9052);
 
+	pr_debug("%s: DA9052_ALARMMI_REG 0x%08x\n", __func__, msg.data);
 	if (msg.data & DA9052_ALARMMI_ALARMTYPE) {
 		da9052_rtc_enable_alarm(rtc->da9052, 0);
 		pr_debug("RTC: TIMER ALARM\n");
@@ -75,8 +77,7 @@ static int da9052_rtc_validate_parameters(struct rtc_time *rtc_tm)
 	if (rtc_tm->tm_mday == 0)
 		return DA9052_RTC_INVALID_DAYS;
 
-	if ((rtc_tm->tm_mon > DA9052_RTC_MONTHS_LIMIT) ||
-	(rtc_tm->tm_mon == 0))
+	if ((rtc_tm->tm_mon > DA9052_RTC_MONTHS_LIMIT) || (rtc_tm->tm_mon == 0))
 		return DA9052_RTC_INVALID_MONTHS;
 
 	if (rtc_tm->tm_year > DA9052_RTC_YEARS_LIMIT)
@@ -84,8 +85,8 @@ static int da9052_rtc_validate_parameters(struct rtc_time *rtc_tm)
 
 	if ((rtc_tm->tm_mon == FEBRUARY)) {
 		if (((rtc_tm->tm_year % 4 == 0) &&
-			(rtc_tm->tm_year % 100 != 0)) ||
-			(rtc_tm->tm_year % 400 == 0)) {
+		     (rtc_tm->tm_year % 100 != 0)) ||
+		    (rtc_tm->tm_year % 400 == 0)) {
 			if (rtc_tm->tm_mday > 29)
 				return DA9052_RTC_INVALID_DAYS;
 		} else if (rtc_tm->tm_mday > 28) {
@@ -94,11 +95,10 @@ static int da9052_rtc_validate_parameters(struct rtc_time *rtc_tm)
 	}
 
 	if (((rtc_tm->tm_mon == APRIL) || (rtc_tm->tm_mon == JUNE) ||
-		(rtc_tm->tm_mon == SEPTEMBER) || (rtc_tm->tm_mon == NOVEMBER))
-		&& (rtc_tm->tm_mday == 31)) {
+	     (rtc_tm->tm_mon == SEPTEMBER) || (rtc_tm->tm_mon == NOVEMBER))
+	    && (rtc_tm->tm_mday == 31)) {
 		return DA9052_RTC_INVALID_DAYS;
 	}
-
 
 	return 0;
 }
@@ -111,6 +111,14 @@ static int da9052_rtc_settime(struct da9052 *da9052, struct rtc_time *rtc_tm)
 	unsigned char loop_index = 0;
 	int ret = 0;
 
+	pr_debug("\n-----------rtc: %s      \n,"
+		 "tm_sec  %d, tm_min  %d, tm_hour %d\n,"
+		 "tm_mday %d, tm_mon  %d, tm_year %d\n,"
+		 "tm_wday %d, tm_yday %d, tm_isdst%d\n",
+		 __func__, 
+		 rtc_tm->tm_sec, rtc_tm->tm_min,  rtc_tm->tm_hour,
+		 rtc_tm->tm_mday,rtc_tm->tm_mon,  rtc_tm->tm_year,
+		 rtc_tm->tm_wday,rtc_tm->tm_yday, rtc_tm->tm_isdst);
 
 	/* System compatability */
 	rtc_tm->tm_year -= 100;
@@ -254,7 +262,6 @@ static int da9052_alarm_gettime(struct da9052 *da9052, struct rtc_time *rtc_tm)
 
 static int da9052_alarm_settime(struct da9052 *da9052, struct rtc_time *rtc_tm)
 {
-
 	struct da9052_ssc_msg msg_arr[5];
 	struct da9052_ssc_msg msg;
 	int validate_param = 0;
@@ -264,6 +271,16 @@ static int da9052_alarm_settime(struct da9052 *da9052, struct rtc_time *rtc_tm)
 	/* System compatability */
 	rtc_tm->tm_year -= 100;
 	rtc_tm->tm_mon += 1;
+
+	pr_debug("\n-----------rtc: %s      \n,"
+		 "tm_sec  %d, tm_min  %d, tm_hour %d\n,"
+		 "tm_mday %d, tm_mon  %d, tm_year %d\n,"
+		 "tm_wday %d, tm_yday %d, tm_isdst%d\n",
+		 __func__, 
+		 rtc_tm->tm_sec, rtc_tm->tm_min,  rtc_tm->tm_hour,
+		 rtc_tm->tm_mday,rtc_tm->tm_mon,  rtc_tm->tm_year,
+		 rtc_tm->tm_wday,rtc_tm->tm_yday, rtc_tm->tm_isdst
+		);
 
 	validate_param = da9052_rtc_validate_parameters(rtc_tm);
 	if (validate_param)
@@ -417,11 +434,10 @@ static ssize_t da9052_rtc_unmask_irq(struct da9052 *da9052)
 
 	da9052_unlock(da9052);
 	return 0;
-
 }
 
-static int da9052_rtc_class_ops_gettime
-			(struct device *dev, struct rtc_time *rtc_tm)
+static int da9052_rtc_class_ops_gettime(struct device *dev,
+					struct rtc_time *rtc_tm)
 {
 	int ret;
 	struct da9052 *da9052 = dev_get_drvdata(dev->parent);
@@ -481,7 +497,7 @@ static int da9052_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 }
 
 static int da9052_rtc_alarm_irq_enable(struct device *dev,
-			unsigned int enabled)
+				       unsigned int enabled)
 {
 	struct da9052_rtc *priv = dev_get_drvdata(dev);
 
@@ -495,7 +511,6 @@ static const struct rtc_class_ops da9052_rtc_ops = {
 	.set_alarm	= da9052_rtc_setalarm,
 	.alarm_irq_enable = da9052_rtc_alarm_irq_enable,
 };
-
 
 static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 {
@@ -517,7 +532,7 @@ static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 	priv->eh_data.eve_type = ALARM_EVE;
 	priv->eh_data.call_back = &da9052_rtc_notifier;
 	ret = priv->da9052->register_event_notifier(priv->da9052,
-		&priv->eh_data);
+						    &priv->eh_data);
 	if (ret)
 		goto err_register_alarm;
 
@@ -540,8 +555,7 @@ static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 	if (priv->enable_tick_alarm)
 		ssc_msg.data = (ssc_msg.data | DA9052_ALARMY_TICKON);
 	else
-		ssc_msg.data =
-		((ssc_msg.data & ~(DA9052_ALARMY_TICKON)));
+		ssc_msg.data = (ssc_msg.data & ~(DA9052_ALARMY_TICKON));
 
 	ret = priv->da9052->write(priv->da9052, &ssc_msg);
 	if (ret != 0) {
@@ -560,12 +574,21 @@ static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 		goto err_ssc_comm;
 	}
 
-	if (priv->is_min_alarm)
-		/* Set 1 minute tick type */
-		ssc_msg.data = (ssc_msg.data | DA9052_ALARMMI_TICKTYPE);
-	else
-		/* Set 1 sec tick type */
-		ssc_msg.data = (ssc_msg.data & ~(DA9052_ALARMMI_TICKTYPE));
+	if (priv->enable_tick_alarm) {
+		/* Tick alarm */
+		ssc_msg.data = (ssc_msg.data & ~(DA9052_ALARMMI_ALARMTYPE));
+
+		if (priv->is_min_alarm)
+			/* Set 1 minute tick type */
+			ssc_msg.data = (ssc_msg.data | DA9052_ALARMMI_TICKTYPE);
+		else
+			/* Set 1 sec tick type */
+			ssc_msg.data = (ssc_msg.data & ~(DA9052_ALARMMI_TICKTYPE));
+	} else {
+		/* Timer alarm */
+		ssc_msg.data = (ssc_msg.data | DA9052_ALARMMI_ALARMTYPE);
+	}
+
 
 	ret = priv->da9052->write(priv->da9052, &ssc_msg);
 	if (ret != 0) {
@@ -608,7 +631,7 @@ static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 	da9052_rtc_enable_alarm(priv->da9052, 0);
 
 	priv->rtc = rtc_device_register(pdev->name,
-			&pdev->dev, &da9052_rtc_ops, THIS_MODULE);
+					&pdev->dev, &da9052_rtc_ops, THIS_MODULE);
 	if (IS_ERR(priv->rtc)) {
 		ret = PTR_ERR(priv->rtc);
 		goto err_ssc_comm;
@@ -616,11 +639,11 @@ static int __devinit da9052_rtc_probe(struct platform_device *pdev)
 	return 0;
 
 err_ssc_comm:
-		priv->da9052->unregister_event_notifier
-			(priv->da9052, &priv->eh_data);
+	priv->da9052->unregister_event_notifier
+	(priv->da9052, &priv->eh_data);
 err_register_alarm:
-		platform_set_drvdata(pdev, NULL);
-		kfree(priv);
+	platform_set_drvdata(pdev, NULL);
+	kfree(priv);
 
 	return ret;
 }
@@ -645,7 +668,6 @@ static struct platform_driver da9052_rtc_driver = {
 		.owner = THIS_MODULE,
 	},
 };
-
 
 static int __init da9052_rtc_init(void)
 {

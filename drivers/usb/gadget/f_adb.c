@@ -546,11 +546,12 @@ static void adb_function_disable(struct usb_function *f)
 	VDBG(cdev, "%s disabled\n", dev->function.name);
 }
 
-static int adb_bind_config(struct usb_configuration *c)
+static int adb_bind_config(struct usb_configuration *c, int string_idx)
 {
 	struct adb_dev *dev = _adb_dev;
 
 	printk(KERN_INFO "adb_bind_config\n");
+	adb_interface_desc.iInterface = string_idx;
 
 	dev->cdev = c->cdev;
 	dev->function.name = "adb";

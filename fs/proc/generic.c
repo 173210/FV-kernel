@@ -245,10 +245,34 @@ proc_file_lseek(struct file *file, loff_t offset, int orig)
 	return retval;
 }
 
+static long 
+proc_file_ioctl (struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct proc_dir_entry *pde = PDE(file->f_path.dentry->d_inode);
+	long rv = -EIO;
+
+	if (pde->ioctl_proc) {
+		spin_lock(&pde->pde_unload_lock);
+		if (!pde->proc_fops) {
+			spin_unlock(&pde->pde_unload_lock);
+			return rv;
+		}
+		pde->pde_users++;
+		spin_unlock(&pde->pde_unload_lock);
+
+		/* FIXME: does this routine need ppos?  probably... */
+		rv = pde->ioctl_proc(file, cmd, arg);
+		pde_users_dec(pde);
+	}
+
+	return rv;
+}
+
 static const struct file_operations proc_file_operations = {
 	.llseek		= proc_file_lseek,
 	.read		= proc_file_read,
 	.write		= proc_file_write,
+	.unlocked_ioctl = proc_file_ioctl,
 };
 
 static int proc_notify_change(struct dentry *dentry, struct iattr *iattr)

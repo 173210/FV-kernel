@@ -160,6 +160,7 @@ struct input_keymap_entry {
 #define EV_MAX			0x1f
 #define EV_CNT			(EV_MAX+1)
 
+#define KEY_MRS                 SW_LID
 /*
  * Synchronization events.
  */
@@ -379,6 +380,21 @@ struct input_keymap_entry {
 #define KEY_F22			192
 #define KEY_F23			193
 #define KEY_F24			194
+
+/*************Add for FV40 special function key****************/
+#define KEY_YI_KUO              183             /*一括*/
+#define KEY_GUO_YU              184             /*国語*/
+#define KEY_YIN_HE              185             /*英和*/
+#define KEY_HE_YIN              186             /*和英*/
+#define KEY_YIN_YIN             187             /*英英*/
+#define KEY_LEARN               188             /*学習*/
+#define KEY_JPNONE              189             /*お気に入り*/
+#define KEY_JPNTWO              190             /*メニュー*/
+#define KEY_JPN_SYM             195             /*チェツク ？   KEY_F25*/
+#define KEY_JPNTHREE            196             /*スペル        KEY_F26*/
+
+#define KEY_ADDON 		191
+/**************************************************************/
 
 #define KEY_PLAYCD		200
 #define KEY_PAUSECD		201

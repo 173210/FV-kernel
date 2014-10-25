@@ -50,8 +50,7 @@ int da9052_adc_read(unsigned char channel)
 }
 EXPORT_SYMBOL(da9052_adc_read);
 
-int da9052_manual_read(struct da9052 *da9052,
-			unsigned char channel)
+int da9052_manual_read(struct da9052 *da9052, unsigned char channel)
 {
 	unsigned char man_timeout_cnt = DA9052_ADC_MAX_MANCONV_RETRY_COUNT;
 	struct da9052_ssc_msg msg;
@@ -598,9 +597,6 @@ static int __init da9052_adc_probe(struct platform_device *pdev)
 	/* Initializes the hardware for ADC module */
 	da9052_adc_hw_init(priv->da9052);
 
-	/* Initialize mutex required for ADC Manual read */
-	mutex_init(&priv->da9052->manconv_lock);
-
 	da9052_local = priv->da9052;
 	return 0;
 
@@ -616,8 +612,6 @@ out_err_create1:
 static int __devexit da9052_adc_remove(struct platform_device *pdev)
 {
 	struct da9052_adc_priv *priv = platform_get_drvdata(pdev);
-
-	mutex_destroy(&priv->da9052->manconv_lock);
 
 	hwmon_device_unregister(priv->hwmon_dev);
 

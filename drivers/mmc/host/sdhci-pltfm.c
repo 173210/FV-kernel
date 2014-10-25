@@ -50,6 +50,8 @@ static struct sdhci_ops sdhci_pltfm_ops = {
  *                                                                           *
 \*****************************************************************************/
 
+struct sdhci_host *sdio_host;
+EXPORT_SYMBOL_GPL(sdio_host);
 static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 {
 	const struct platform_device_id *platid = platform_get_device_id(pdev);
@@ -58,7 +60,6 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 	struct sdhci_pltfm_host *pltfm_host;
 	struct resource *iomem;
 	int ret;
-
 	if (platid && platid->driver_data)
 		pdata = (void *)platid->driver_data;
 	else
@@ -79,7 +80,9 @@ static int __devinit sdhci_pltfm_probe(struct platform_device *pdev)
 		host = sdhci_alloc_host(pdev->dev.parent, sizeof(*pltfm_host));
 	else
 		host = sdhci_alloc_host(&pdev->dev, sizeof(*pltfm_host));
-
+	if(pdev->id == 1) {
+		sdio_host = host;
+	}
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
 		goto err;

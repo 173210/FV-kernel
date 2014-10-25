@@ -60,8 +60,6 @@ static void power_supply_changed_work(struct work_struct *work)
 		kobject_uevent(&psy->dev->kobj, KOBJ_CHANGE);
 		spin_lock_irqsave(&psy->changed_lock, flags);
 	}
-	if (!psy->changed)
-		wake_unlock(&psy->work_wake_lock);
 	spin_unlock_irqrestore(&psy->changed_lock, flags);
 }
 
@@ -73,8 +71,8 @@ void power_supply_changed(struct power_supply *psy)
 
 	spin_lock_irqsave(&psy->changed_lock, flags);
 	psy->changed = true;
-	wake_lock(&psy->work_wake_lock);
 	spin_unlock_irqrestore(&psy->changed_lock, flags);
+	wake_lock_timeout(&psy->work_wake_lock, HZ * 5);
 	schedule_work(&psy->changed_work);
 }
 EXPORT_SYMBOL_GPL(power_supply_changed);
@@ -192,10 +190,6 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	if (rc)
 		goto kobject_set_name_failed;
 
-	rc = device_add(dev);
-	if (rc)
-		goto device_add_failed;
-
 	INIT_WORK(&psy->changed_work, power_supply_changed_work);
 	spin_lock_init(&psy->changed_lock);
 	wake_lock_init(&psy->work_wake_lock, WAKE_LOCK_SUSPEND, "power-supply");
@@ -204,16 +198,20 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	if (rc)
 		goto create_triggers_failed;
 
+	rc = device_add(dev);
+	if (rc)
+		goto device_add_failed;
+
 	power_supply_changed(psy);
 
 	goto success;
 
+device_add_failed:
+	put_device(dev);
 create_triggers_failed:
 	wake_lock_destroy(&psy->work_wake_lock);
 	device_del(dev);
 kobject_set_name_failed:
-device_add_failed:
-	put_device(dev);
 success:
 	return rc;
 }

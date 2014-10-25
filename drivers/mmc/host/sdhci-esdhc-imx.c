@@ -407,6 +407,27 @@ static struct sdhci_ops sdhci_esdhc_ops = {
 	.platform_clk_ctrl = plt_clk_ctrl,
 };
 
+#if 0
+static void sdhci_check_status(unsigned long data)
+{
+	struct sdhci_host *host = (struct sdhci_host *)data;
+
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct pltfm_imx_data *imx_data = pltfm_host->priv;
+
+	bool present;
+	present = sdhci_readl(host, SDHCI_PRESENT_STATE) &
+				SDHCI_CARD_PRESENT;
+//	if(present != host->present) 
+	{
+		sdhci_writel(host, 0, SDHCI_MIX_CTRL);
+		sdhci_writel(host, 0, SDHCI_TUNE_CTRL_STATUS);
+		host->present = present;
+		tasklet_schedule(&host->card_tasklet);
+	}
+	mod_timer(&host->cd_timer, jiffies + (HZ>>1));
+}
+#endif
 static irqreturn_t cd_irq(int irq, void *data)
 {
 	struct sdhci_host *sdhost = (struct sdhci_host *)data;
@@ -469,6 +490,11 @@ static int esdhc_pltfm_init(struct sdhci_host *host, struct sdhci_pltfm_data *pd
 		host->ocr_avail_sd |= MMC_VDD_165_195;
 	if (boarddata->support_8bit)
 		host->mmc->caps |= MMC_CAP_8_BIT_DATA;
+	host->mmc->caps |= MMC_CAP_SDIO_IRQ;
+	if(boarddata->non_remove)
+		host->mmc->caps |= MMC_CAP_NONREMOVABLE;
+	if(boarddata->pmflag)
+		host->mmc->pm_flags |= MMC_PM_KEEP_POWER;
 	if (boarddata->keep_power_at_suspend)
 		host->mmc->pm_caps |= MMC_PM_KEEP_POWER;
 	if (cpu_is_mx6q()) {
@@ -514,6 +540,16 @@ static int esdhc_pltfm_init(struct sdhci_host *host, struct sdhci_pltfm_data *pd
 		if (err) {
 			dev_warn(mmc_dev(host->mmc),
 				"no card-detect pin available!\n");
+#if 0
+			init_timer(&host->cd_timer);
+			host->cd_timer.data = (unsigned long)host;
+			host->cd_timer.function = sdhci_check_status;
+			add_timer(&host->cd_timer);
+			mod_timer(&host->cd_timer, jiffies + (HZ >> 1));
+			host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
+			host->present = sdhci_readl(host, SDHCI_PRESENT_STATE) & SDHCI_CARD_PRESENT;
+			//imx_data->flags |= ESDHC_FLAG_GPIO_FOR_CD_WP;
+#endif
 			goto no_card_detect_pin;
 		}
 

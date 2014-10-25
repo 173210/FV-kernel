@@ -34,6 +34,7 @@
 #include "bus.h"
 #include "host.h"
 #include "sdio_bus.h"
+#include "mmc_proc.h"
 
 #include "mmc_ops.h"
 #include "sd_ops.h"
@@ -1930,6 +1931,8 @@ static int __init mmc_init(void)
 {
 	int ret;
 
+	mmc_proc_init();
+
 	workqueue = alloc_ordered_workqueue("kmmcd", 0);
 	if (!workqueue)
 		return -ENOMEM;
@@ -1969,6 +1972,7 @@ static void __exit mmc_exit(void)
 	mmc_unregister_bus();
 	destroy_workqueue(workqueue);
 	wake_lock_destroy(&mmc_delayed_work_wake_lock);
+	mmc_proc_exit();
 }
 
 subsys_initcall(mmc_init);

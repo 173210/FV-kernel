@@ -468,8 +468,18 @@ static int fb_show_logo_line(struct fb_info *info, int rotate,
 		fb_set_logo(info, logo, logo_new, fb_logo.depth);
 	}
 
+#ifdef CONFIG_LOGO_SII_CLUT224
+	image.dx = (info->var.xres - logo->width) / 2 ;
+	image.dy = (info->var.yres - logo->height) / 2;
+#else
+#ifdef CONFIG_LOGO_UPGRADE_CLUT224
+	image.dx = (info->var.xres - logo->width) / 2 ;
+	image.dy = (info->var.yres - logo->height) / 2;
+#else
 	image.dx = 0;
 	image.dy = y;
+#endif
+#endif
 	image.width = logo->width;
 	image.height = logo->height;
 

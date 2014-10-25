@@ -50,6 +50,7 @@
 #include "u_serial.c"
 #include "f_acm.c"
 #include "f_adb.c"
+#include "f_pasm.c"
 #include "f_mtp.c"
 #include "f_accessory.c"
 #define USB_ETH_RNDIS y
@@ -61,7 +62,7 @@ MODULE_AUTHOR("Mike Lockwood");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
-
+#define LUNNAME(x) x==0?"lun":x==1?"lun1":"lun2"
 static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by userspace */
@@ -116,16 +117,22 @@ static void android_unbind_config(struct usb_configuration *c);
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
 #define STRING_SERIAL_IDX		2
+#define STRING_PASM_IDX			3
+#define STRING_ADB_IDX			4
 
 static char manufacturer_string[256];
 static char product_string[256];
 static char serial_string[256];
+static char pasm_string[256];
+static char adb_string[256];
 
 /* String Table */
 static struct usb_string strings_dev[] = {
 	[STRING_MANUFACTURER_IDX].s = manufacturer_string,
 	[STRING_PRODUCT_IDX].s = product_string,
 	[STRING_SERIAL_IDX].s = serial_string,
+	[STRING_PASM_IDX].s = pasm_string,
+	[STRING_ADB_IDX].s = adb_string,
 	{  }			/* end of list */
 };
 
@@ -201,7 +208,8 @@ static void adb_function_cleanup(struct android_usb_function *f)
 
 static int adb_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
 {
-	return adb_bind_config(c);
+	int string_idx = strings_dev[STRING_ADB_IDX].id;
+	return adb_bind_config(c, string_idx);
 }
 
 static struct android_usb_function adb_function = {
@@ -212,6 +220,28 @@ static struct android_usb_function adb_function = {
 };
 
 
+static int pasm_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+	return pasm_setup();
+}
+
+static void pasm_function_cleanup(struct android_usb_function *f)
+{
+	pasm_cleanup();
+}
+
+static int pasm_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+	int string_idx = strings_dev[STRING_PASM_IDX].id;
+	return pasm_bind_config(c, string_idx);
+}
+
+static struct android_usb_function pasm_function = {
+	.name		= "pasorama",
+	.init		= pasm_function_init,
+	.cleanup	= pasm_function_cleanup,
+	.bind_config	= pasm_function_bind_config,
+};
 #define MAX_ACM_INSTANCES 4
 struct acm_function_config {
 	int instances;
@@ -533,6 +563,7 @@ static int mass_storage_function_init(struct android_usb_function *f,
 	struct mass_storage_function_config *config;
 	struct fsg_common *common;
 	int err;
+	unsigned int i;
 
 	config = kzalloc(sizeof(struct mass_storage_function_config),
 								GFP_KERNEL);
@@ -547,15 +578,26 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		kfree(config);
 		return PTR_ERR(common);
 	}
-
+#if 1
 	err = sysfs_create_link(&f->dev->kobj,
-				&common->luns[0].dev.kobj,
-				"lun");
+			&common->luns[0].dev.kobj,
+			"lun");
 	if (err) {
 		kfree(config);
 		return err;
 	}
-
+#else
+	for(i = 0;i<config->fsg.nluns; i++)
+	{
+		err = sysfs_create_link(&f->dev->kobj,
+					&common->luns[i].dev.kobj,
+					LUNNAME(i));
+		if (err) {
+			kfree(config);
+			return err;
+		}
+	}
+#endif
 	config->common = common;
 	f->config = config;
 	return 0;
@@ -647,6 +689,7 @@ static struct android_usb_function accessory_function = {
 
 static struct android_usb_function *supported_functions[] = {
 	&adb_function,
+	&pasm_function,
 	&acm_function,
 	&mtp_function,
 	&ptp_function,
@@ -1012,6 +1055,20 @@ static int android_bind(struct usb_composite_dev *cdev)
 		return id;
 	strings_dev[STRING_SERIAL_IDX].id = id;
 	device_desc.iSerialNumber = id;
+
+	// pasorama string
+	id = usb_string_id(cdev);
+	if (id < 0)
+		return id;
+	strings_dev[STRING_PASM_IDX].id = id;
+	strncpy(pasm_string, "Pasorama Device", sizeof(pasm_string) - 1);
+
+	// adb string
+	id = usb_string_id(cdev);
+	if (id < 0)
+		return id;
+	strings_dev[STRING_ADB_IDX].id = id;
+	strncpy(adb_string, "Android ADB Device", sizeof(adb_string) - 1);
 
 	gcnum = usb_gadget_controller_number(gadget);
 	if (gcnum >= 0)

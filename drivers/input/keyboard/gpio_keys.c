@@ -26,6 +26,7 @@
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
 
+
 struct gpio_button_data {
 	struct gpio_keys_button *button;
 	struct input_dev *input;
@@ -42,6 +43,12 @@ struct gpio_keys_drvdata {
 	int (*enable)(struct device *dev);
 	void (*disable)(struct device *dev);
 	struct gpio_button_data data[0];
+};
+struct mrs_data {
+	struct platform_device *pdev;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	struct early_suspend early_suspend;
+#endif
 };
 
 /*
@@ -324,8 +331,16 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 	unsigned int type = button->type ?: EV_KEY;
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
 
-	input_event(input, type, button->code, !!state);
-	input_sync(input);
+	if(button->code == KEY_MRS) 
+	{
+		input_report_switch(input, button->code, state);
+		input_sync(input);
+	}
+	else if (button->code != KEY_POWER)/* powerkey不发送按键，还是使用pmic on key驱动发送power key, 此处仅为确保能唤醒系统 */
+	{
+		input_event(input, type, button->code, !!state);
+		input_sync(input);
+	}
 }
 
 static void gpio_keys_work_func(struct work_struct *work)
@@ -347,7 +362,6 @@ static irqreturn_t gpio_keys_isr(int irq, void *dev_id)
 {
 	struct gpio_button_data *bdata = dev_id;
 	struct gpio_keys_button *button = bdata->button;
-
 	BUG_ON(irq != gpio_to_irq(button->gpio));
 
 	if (bdata->timer_debounce)
@@ -385,7 +399,6 @@ static int __devinit gpio_keys_setup_key(struct platform_device *pdev,
 			button->gpio, error);
 		goto fail3;
 	}
-
 	if (button->debounce_interval) {
 		error = gpio_set_debounce(button->gpio,
 					  button->debounce_interval * 1000);
@@ -402,7 +415,7 @@ static int __devinit gpio_keys_setup_key(struct platform_device *pdev,
 		goto fail3;
 	}
 
-	irqflags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
+	irqflags = IRQF_TRIGGER_FALLING| IRQF_TRIGGER_RISING | IRQF_NO_SUSPEND;
 	/*
 	 * If platform has specified that the button can be disabled,
 	 * we don't want it to share the interrupt line.
@@ -440,10 +453,67 @@ static void gpio_keys_close(struct input_dev *input)
 		ddata->disable(input->dev.parent);
 }
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void gpio_key_early_suspend(struct early_suspend *handler)
+{
+	int i;
+	struct mrs_data *mrsdata = container_of(handler, struct mrs_data, early_suspend);
+	struct platform_device *pdev = mrsdata->pdev;
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
+	for (i = 0; i < pdata->nbuttons; i++) {
+		struct gpio_keys_button *button = &pdata->buttons[i];
+		struct gpio_button_data *bdata = &ddata->data[i];
+
+		char *desc = button->desc ? button->desc : "gpio_keys";
+		struct device *dev = &pdev->dev;
+		unsigned long irqflags;
+		int irq, error;
+		irq = gpio_to_irq(button->gpio);
+		free_irq(irq, &ddata->data[i]);
+		irqflags = IRQF_TRIGGER_RISING | IRQF_NO_SUSPEND;
+		error = request_any_context_irq(irq, gpio_keys_isr, irqflags, desc, bdata);
+		if (error < 0) {
+			dev_err(dev, "Unable to claim irq %d; error %d\n",
+					irq, error);
+		}
+
+	}
+	return ;
+}
+static void gpio_key_later_resume(struct early_suspend *handler)
+{
+	int i;
+	struct mrs_data *mrsdata = container_of(handler, struct mrs_data, early_suspend);
+	struct platform_device *pdev = mrsdata->pdev;
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
+	for (i = 0; i < pdata->nbuttons; i++) {
+		struct gpio_keys_button *button = &pdata->buttons[i];
+		struct gpio_button_data *bdata = &ddata->data[i];
+
+		char *desc = button->desc ? button->desc : "gpio_keys";
+		struct device *dev = &pdev->dev;
+		unsigned long irqflags;
+		int irq, error;
+		irq = gpio_to_irq(button->gpio);
+		free_irq(irq, &ddata->data[i]);
+		irqflags = IRQF_TRIGGER_FALLING | IRQF_NO_SUSPEND;
+		error = request_any_context_irq(irq, gpio_keys_isr, irqflags, desc, bdata);
+		if (error < 0) {
+			dev_err(dev, "Unable to claim irq %d; error %d\n",
+					irq, error);
+		}
+
+	}
+	return ;
+}
+#endif
 static int __devinit gpio_keys_probe(struct platform_device *pdev)
 {
 	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
 	struct gpio_keys_drvdata *ddata;
+	struct mrs_data *mrsdata;
 	struct device *dev = &pdev->dev;
 	struct input_dev *input;
 	int i, error;
@@ -452,18 +522,27 @@ static int __devinit gpio_keys_probe(struct platform_device *pdev)
 	ddata = kzalloc(sizeof(struct gpio_keys_drvdata) +
 			pdata->nbuttons * sizeof(struct gpio_button_data),
 			GFP_KERNEL);
+	mrsdata = kzalloc(sizeof(struct mrs_data), GFP_KERNEL);
 	input = input_allocate_device();
 	if (!ddata || !input) {
 		dev_err(dev, "failed to allocate state\n");
 		error = -ENOMEM;
 		goto fail1;
 	}
-
+	mrsdata->pdev = pdev;
 	ddata->input = input;
 	ddata->n_buttons = pdata->nbuttons;
 	ddata->enable = pdata->enable;
 	ddata->disable = pdata->disable;
 	mutex_init(&ddata->disable_lock);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#if 0
+	mrsdata->early_suspend.suspend = gpio_key_early_suspend;
+	mrsdata->early_suspend.resume  = gpio_key_later_resume;
+	mrsdata->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN ;
+	register_early_suspend(&mrsdata->early_suspend);
+#endif
+#endif
 
 	platform_set_drvdata(pdev, ddata);
 	input_set_drvdata(input, ddata);
@@ -497,7 +576,6 @@ static int __devinit gpio_keys_probe(struct platform_device *pdev)
 
 		if (button->wakeup)
 			wakeup = 1;
-
 		input_set_capability(input, type, button->code);
 	}
 
@@ -592,21 +670,16 @@ static int gpio_keys_suspend(struct device *dev)
 static int gpio_keys_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
-	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
 	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
 	int i;
 
 	for (i = 0; i < pdata->nbuttons; i++) {
-
 		struct gpio_keys_button *button = &pdata->buttons[i];
 		if (button->wakeup && device_may_wakeup(&pdev->dev)) {
 			int irq = gpio_to_irq(button->gpio);
 			disable_irq_wake(irq);
 		}
-
-		gpio_keys_report_event(&ddata->data[i]);
 	}
-	input_sync(ddata->input);
 
 	return 0;
 }

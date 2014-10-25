@@ -37,6 +37,7 @@
 #include <mach/sdma.h>
 #include <mach/dma.h>
 #include <mach/hardware.h>
+#include <mach/clock.h>
 
 /* SDMA registers */
 #define SDMA_H_C0PTR		0x000
@@ -1261,6 +1262,7 @@ static int __init sdma_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	sdma->dev = &pdev->dev;
+	dev_set_drvdata(&pdev->dev, sdma);
 
 	iores = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
@@ -1363,9 +1365,34 @@ err_clk:
 	release_mem_region(iores->start, resource_size(iores));
 err_request_region:
 err_irq:
+	dev_set_drvdata(&pdev->dev, NULL);
 	kfree(sdma);
 	return ret;
 }
+
+#ifdef CONFIG_PM
+static int sdma_clk_state = 0;
+static int sdma_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct sdma_engine *sdma = dev_get_drvdata(&pdev->dev);
+
+	if (sdma && sdma->clk && clk_get_usecount(sdma->clk) > 0) {
+		sdma_clk_state = 1;
+		clk_disable(sdma->clk);
+	} else
+		sdma_clk_state = 0;
+	return 0;
+}
+
+static int sdma_resume(struct platform_device *pdev)
+{
+	struct sdma_engine *sdma = dev_get_drvdata(&pdev->dev);
+
+	if (sdma && sdma->clk && sdma_clk_state == 1)
+		clk_enable(sdma->clk);
+	return 0;
+}
+#endif
 
 static int __exit sdma_remove(struct platform_device *pdev)
 {
@@ -1377,6 +1404,10 @@ static struct platform_driver sdma_driver = {
 		.name	= "imx-sdma",
 	},
 	.remove		= __exit_p(sdma_remove),
+#ifdef CONFIG_PM
+	.suspend	= sdma_suspend,
+	.resume		= sdma_resume,
+#endif
 };
 
 static int __init sdma_module_init(void)

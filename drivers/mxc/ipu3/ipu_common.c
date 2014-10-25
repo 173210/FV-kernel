@@ -1080,23 +1080,27 @@ void ipu_uninit_channel(struct ipu_soc *ipu, ipu_channel_t channel)
 	}
 	if (ipu->rot_use_count == 0)
 		ipu_conf &= ~IPU_CONF_ROT_EN;
-	if (ipu->dc_use_count == 0)
-		ipu_conf &= ~IPU_CONF_DC_EN;
-	if (ipu->dp_use_count == 0)
-		ipu_conf &= ~IPU_CONF_DP_EN;
-	if (ipu->dmfc_use_count == 0)
-		ipu_conf &= ~IPU_CONF_DMFC_EN;
 	if (ipu->di_use_count[0] == 0) {
 		ipu_conf &= ~IPU_CONF_DI0_EN;
 	}
+	ipu_cm_write(ipu, ipu_conf, IPU_CONF);
+#if 0
 	if (ipu->di_use_count[1] == 0) {
 		ipu_conf &= ~IPU_CONF_DI1_EN;
 	}
+	if (ipu->dc_use_count == 0)
+		ipu_conf &= ~IPU_CONF_DC_EN;
+	ipu_cm_write(ipu, ipu_conf, IPU_CONF);
+	if (ipu->dp_use_count == 0)
+		ipu_conf &= ~IPU_CONF_DP_EN;
+	ipu_cm_write(ipu, ipu_conf, IPU_CONF);
+	if (ipu->dmfc_use_count == 0)
+		ipu_conf &= ~IPU_CONF_DMFC_EN;
+	ipu_cm_write(ipu, ipu_conf, IPU_CONF);
 	if (ipu->smfc_use_count == 0)
 		ipu_conf &= ~IPU_CONF_SMFC_EN;
-
 	ipu_cm_write(ipu, ipu_conf, IPU_CONF);
-
+#endif
 	ipu->channel_init_mask &= ~(1L << IPU_CHAN_ID(channel));
 
 	/* Restore IDMAC_LOCK_EN when we don't use dual display */

@@ -741,4 +741,26 @@ config TOUCHSCREEN_MAX11801
         To compile this driver as a module, choose M here: the
 	  module will be called max11801_ts
 
+config TOUCHSCREEN_TP050RCZ 
+       tristate "tp050rcz touchscreen"
+       depends on I2C 
+       help
+       Say Y here if you have a tp050rcz touchscreen
+       controller
+
+       If unsure, say N.
+
+       To compile this driver as a module, choose M here
+
+config TOUCHSCREEN_PIXCIR 
+       tristate "PIXCIR touchscreen"
+       depends on I2C
+       help
+        Say Y here if you have a PIXCIR touchscreen
+        controller
+
+        If unsure, say N.
+
+        To compile this driver as a module, choose M here
+
 endif

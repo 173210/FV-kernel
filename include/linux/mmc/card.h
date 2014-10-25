@@ -153,6 +153,7 @@ struct mmc_card {
 	unsigned		num_info;	/* number of info strings */
 	const char		**info;		/* info strings */
 	struct sdio_func_tuple	*tuples;	/* unknown common tuples */
+	bool 			encrypted;
 
 	struct dentry		*debugfs_root;
 };

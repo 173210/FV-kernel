@@ -333,5 +333,18 @@ struct _mmc_csd {
 #define MMC_SWITCH_MODE_CLEAR_BITS	0x02	/* Clear bits which are 1 in value */
 #define MMC_SWITCH_MODE_WRITE_BYTE	0x03	/* Set target to value */
 
+/*
+ *MMC_LOCK access modes
+ */
+
+#define MMC_LOCK_MODE_ERASE	(1<<3)
+#define MMC_LOCK_MODE_UNLOCK	(0<<2)
+#define MMC_LOCK_MODE_LOCK	(1<<2)
+#define MMC_LOCK_MODE_CLR_PWD	(1<<1)
+#define MMC_LOCK_MODE_SET_PWD	(1<<0)
+
+extern int mmc_lock_unlock(struct mmc_card *card, char lock_mode);
+extern int mmc_password_set(struct mmc_card *card, char* password);
+
 #endif  /* MMC_MMC_PROTOCOL_H */
 

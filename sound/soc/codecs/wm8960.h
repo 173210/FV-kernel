@@ -76,6 +76,7 @@
 #define WM8960_OPCLKDIV			2
 #define WM8960_DCLKDIV			3
 #define WM8960_TOCLKSEL			4
+#define WM8960_BCLKDIV			5
 
 #define WM8960_SYSCLK_DIV_1		(0 << 1)
 #define WM8960_SYSCLK_DIV_2		(2 << 1)

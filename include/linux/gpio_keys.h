@@ -1,6 +1,7 @@
 #ifndef _GPIO_KEYS_H
 #define _GPIO_KEYS_H
 
+#include <linux/earlysuspend.h>
 struct gpio_keys_button {
 	/* Configuration parameters */
 	int code;		/* input event code (KEY_*, SW_*) */

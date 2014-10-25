@@ -58,6 +58,7 @@
 
 /* Display port number */
 #define MXCFB_PORT_NUM	2
+#define FIX_LCD_FLICKER
 /*!
  * Structure containing the MXC specific framebuffer information.
  */
@@ -416,9 +417,21 @@ static int mxcfb_set_par(struct fb_info *fbi)
 			sig_cfg.enable_pol = true;
 		if (fbi->var.sync & FB_SYNC_CLK_IDLE_EN)
 			sig_cfg.clkidle_en = true;
-
 		dev_dbg(fbi->device, "pixclock = %ul Hz\n",
 			(u32) (PICOS2KHZ(fbi->var.pixclock) * 1000UL));
+		// 强制修改LCD的前后回扫参数，不修改则会整个显示画面偏右上角
+		fbi->var.left_margin=48;
+		fbi->var.right_margin=40;
+		fbi->var.upper_margin=29;
+		fbi->var.lower_margin=13;
+		fbi->var.hsync_len=40;
+		fbi->var.vsync_len=3;
+		u32 htotal;
+		u32 vtotal;
+		htotal = fbi->var.xres + fbi->var.right_margin + fbi->var.hsync_len + fbi->var.left_margin;
+		vtotal = fbi->var.yres + fbi->var.lower_margin + fbi->var.vsync_len + fbi->var.upper_margin;
+		fbi->var.pixclock = (vtotal * htotal * 6UL) / 100UL;
+		fbi->var.pixclock = KHZ2PICOS(fbi->var.pixclock);
 
 		if (ipu_init_sync_panel(mxc_fbi->ipu, mxc_fbi->ipu_di,
 					(PICOS2KHZ(fbi->var.pixclock)) * 1000UL,
@@ -1486,6 +1499,15 @@ static int mxcfb_suspend(struct platform_device *pdev, pm_message_t state)
 	void *fbmem;
 #endif
 
+#ifdef FIX_LCD_FLICKER
+       /*  Clear the screen */
+       memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+       msleep(60);
+       memset((char *)fbi->screen_base, 0x3F, fbi->fix.smem_len);
+       msleep(80);
+       memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+#endif
+
 	if (mxc_fbi->ovfbi) {
 		struct mxcfb_info *mxc_fbi_fg =
 			(struct mxcfb_info *)mxc_fbi->ovfbi->par;
@@ -1497,14 +1519,12 @@ static int mxcfb_suspend(struct platform_device *pdev, pm_message_t state)
 		mxc_fbi_fg->next_blank = saved_blank;
 		console_unlock();
 	}
-
 	console_lock();
 	fb_set_suspend(fbi, 1);
 	saved_blank = mxc_fbi->cur_blank;
 	mxcfb_blank(FB_BLANK_POWERDOWN, fbi);
 	mxc_fbi->next_blank = saved_blank;
 	console_unlock();
-
 	return 0;
 }
 
@@ -1515,12 +1535,18 @@ static int mxcfb_resume(struct platform_device *pdev)
 {
 	struct fb_info *fbi = platform_get_drvdata(pdev);
 	struct mxcfb_info *mxc_fbi = (struct mxcfb_info *)fbi->par;
-
 	console_lock();
+#ifdef FIX_LCD_FLICKER
+	memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+#endif
 	mxcfb_blank(mxc_fbi->next_blank, fbi);
+#ifdef FIX_LCD_FLICKER
+	memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+	msleep(200);
+#endif
+
 	fb_set_suspend(fbi, 0);
 	console_unlock();
-
 	if (mxc_fbi->ovfbi) {
 		struct mxcfb_info *mxc_fbi_fg =
 			(struct mxcfb_info *)mxc_fbi->ovfbi->par;
@@ -2092,7 +2118,10 @@ static int mxcfb_probe(struct platform_device *pdev)
 	ret = device_create_file(fbi->dev, &dev_attr_fsl_disp_property);
 	if (ret)
 		dev_err(&pdev->dev, "Error %d on creating file\n", ret);
-
+#ifdef FIX_LCD_FLICKER
+	memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
+	msleep(100);
+#endif
 #ifdef CONFIG_LOGO
 	fb_prepare_logo(fbi, 0);
 	fb_show_logo(fbi, 0);
@@ -2194,7 +2223,7 @@ static void mxcfb_later_resume(struct early_suspend *h)
 }
 
 struct early_suspend fbdrv_earlysuspend = {
-	.level = EARLY_SUSPEND_LEVEL_DISABLE_FB,
+	.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING ,
 	.suspend = mxcfb_early_suspend,
 	.resume = mxcfb_later_resume,
 };

@@ -126,6 +126,7 @@ static int __devinit create_gpio_led(const struct gpio_led *template,
 	if (!template->retain_state_suspended)
 		led_dat->cdev.flags |= LED_CORE_SUSPENDRESUME;
 
+	if (template->default_state != LEDS_GPIO_DEFSTATE_KEEP)
 	ret = gpio_direction_output(led_dat->gpio, led_dat->active_low ^ state);
 	if (ret < 0)
 		goto err;

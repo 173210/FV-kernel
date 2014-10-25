@@ -436,7 +436,6 @@ static void fsl_otg_clk_gate(bool on)
 {
 	struct device *dev = fsl_otg_dev->otg.dev;
 	struct fsl_usb2_platform_data *pdata;
-
 	if (dev) {
 		pdata = dev->platform_data;
 		if (pdata && pdata->usb_clock_for_pm)
@@ -619,7 +618,7 @@ static int fsl_otg_set_host(struct otg_transceiver *otg_p, struct usb_bus *host)
 		 * so suspend the host after a short delay.
 		 */
 		otg_dev->host_working = 1;
-
+//		printk(KERN_INFO"fsl_otg_set_host otg_event\n");
 		if (otg_dev->fsm.id) {
 			otg_dev->host_first_call = true;
 			schedule_otg_work(&otg_dev->otg_event, 100);
@@ -688,6 +687,7 @@ static int fsl_otg_set_peripheral(struct otg_transceiver *otg_p,
 
 	/* start the gadget right away if the ID pin says Mini-B */
 	DBG("ID pin=%d\n", otg_dev->fsm.id);
+//	printk("ID pin=%d\n", otg_dev->fsm.id);
 	if (otg_dev->fsm.id == 1) {
 		fsl_otg_start_host(&otg_dev->fsm, 0);
 		otg_drv_vbus(&otg_dev->fsm, 0);
@@ -734,6 +734,7 @@ static void fsl_otg_event(struct work_struct *work)
 		fsm->a_conn = 0;
 
 	if (fsm->id) {		/* switch to gadget */
+//		printk(KERN_ERR"fsl_otg_event switch to gadget\n");
 		fsl_otg_start_host(fsm, 0);
 		otg_drv_vbus(fsm, 0);
 		if (og->host_first_call == false) {
@@ -745,6 +746,7 @@ static void fsl_otg_event(struct work_struct *work)
 		b_session_irq_enable(false);
 		fsl_otg_start_gadget(fsm, 1);
 	} else {			/* switch to host */
+//		printk(KERN_ERR"fsl_otg_event switch to host\n");
 		fsl_otg_start_gadget(fsm, 0);
 		otg_drv_vbus(fsm, 1);
 		fsl_otg_wait_stable_vbus(true);
@@ -795,7 +797,7 @@ irqreturn_t fsl_otg_isr_gpio(int irq, void *dev_id)
 	int value;
 	f_otg = container_of(otg_trans, struct fsl_otg, otg);
 	fsm = &f_otg->fsm;
-
+//	printk("irqreturn_t fsl-usb2-otg running... \n");
 	if (pdata->id_gpio == 0)
 		return IRQ_NONE;
 
@@ -830,6 +832,8 @@ irqreturn_t fsl_otg_isr(int irq, void *dev_id)
 	u32 otg_int_src, otg_sc;
 	irqreturn_t ret = IRQ_NONE;
 	struct fsl_usb2_platform_data *pdata;
+//	otg_sc = le32_to_cpu(usb_dr_regs->otgsc);
+//	printk("OTGSC reg: %08x\n", otg_sc);
 	if (fotg && fotg->otg.dev) {
 		pdata = fotg->otg.dev->platform_data;
 		if (pdata->irq_delay)
@@ -838,7 +842,6 @@ irqreturn_t fsl_otg_isr(int irq, void *dev_id)
 
 	otg_sc = le32_to_cpu(usb_dr_regs->otgsc);
 	otg_int_src = otg_sc & OTGSC_INTSTS_MASK & (otg_sc >> 8);
-
 	/* Only clear otg interrupts, expect B_SESSION_VALID,
 	 * Leave it to be handled by arcotg_udc */
 	usb_dr_regs->otgsc = ((usb_dr_regs->otgsc | cpu_to_le32(otg_sc & OTGSC_INTSTS_MASK))&
@@ -859,12 +862,13 @@ irqreturn_t fsl_otg_isr(int irq, void *dev_id)
 	/* process OTG interrupts */
 	if (otg_int_src) {
 		if (otg_int_src & OTGSC_INTSTS_USB_ID) {
+	//		printk("fsl_otg_isr process OTG interrupts\n");
 			fotg->fsm.id = (otg_sc & OTGSC_STS_USB_ID) ? 1 : 0;
 
 			printk(KERN_DEBUG "ID int (ID is %d)\n", fotg->fsm.id);
 
 			__cancel_delayed_work(&fotg->otg_event);
-			schedule_otg_work(&fotg->otg_event, msecs_to_jiffies(10));
+			schedule_otg_work(&fotg->otg_event, msecs_to_jiffies(50));
 			ret = IRQ_HANDLED;
 		}
 	}

@@ -26,7 +26,7 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
-
+#include <mach/esdhc.h>
 #include "sdhci.h"
 
 #define DRIVER_NAME "sdhci"
@@ -1736,6 +1736,7 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 {
 	int ret;
 
+	struct esdhc_platform_data *boarddata = host->mmc->parent->platform_data;
 	sdhci_enable_clk(host);
 	sdhci_disable_card_detection(host);
 
@@ -1762,7 +1763,7 @@ EXPORT_SYMBOL_GPL(sdhci_suspend_host);
 int sdhci_resume_host(struct sdhci_host *host)
 {
 	int ret;
-
+	struct esdhc_platform_data *boarddata = host->mmc->parent->platform_data;
 	if (host->vmmc) {
 		ret = regulator_enable(host->vmmc);
 		if (ret)

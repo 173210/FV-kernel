@@ -41,6 +41,7 @@ config	SOC_IMX53
 	bool
 	select MXC_TZIC
 	select ARCH_MXC_IOMUX_V3
+	select ARCH_MXC_AUDMUX_V2
 	select ARCH_HAS_CPUFREQ
 	select ARCH_MX53
 	select IMX_HAVE_PLATFORM_FEC
@@ -190,6 +191,22 @@ config MACH_MX53_SMD
 	select IMX_HAVE_PLATFORM_AHCI
 	help
 	  Include support for MX53 SMD platform. This includes specific
+	  configurations for the board and its peripherals.
+
+config MACH_MX53_FV40
+	bool "Support MX53 FV40 platforms"
+	select SOC_IMX53
+	select IMX_HAVE_PLATFORM_IMX2_WDT
+	select IMX_HAVE_PLATFORM_IMX_I2C
+	select IMX_HAVE_PLATFORM_IMX_UART
+	select IMX_HAVE_PLATFORM_IMX_I2C
+	select IMX_HAVE_PLATFORM_MXC_GPU
+	select IMX_HAVE_PLATFORM_SDHCI_ESDHC_IMX
+	select IMX_HAVE_PLATFORM_IMX_SRTC
+	select IMX_HAVE_PLATFORM_IMX_ASRC
+	select IMX_HAVE_PLATFORM_AHCI
+	help
+	  Include support for MX53 FV40 platform. This includes specific
 	  configurations for the board and its peripherals.
 
 config MACH_MX53_LOCO

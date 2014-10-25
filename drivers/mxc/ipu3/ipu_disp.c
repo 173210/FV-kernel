@@ -882,6 +882,7 @@ void _ipu_dp_dc_enable(struct ipu_soc *ipu, ipu_channel_t channel)
 
 	reg = ipu_dc_read(ipu, DC_WR_CH_CONF(dc_chan));
 	reg |= 4 << DC_WR_CH_CONF_PROG_TYPE_OFFSET;
+//	reg |= 0xFF << 16;
 	ipu_dc_write(ipu, reg, DC_WR_CH_CONF(dc_chan));
 
 	clk_enable(&ipu->pixel_clk[di]);
@@ -1264,8 +1265,8 @@ int32_t ipu_init_sync_panel(struct ipu_soc *ipu, int disp, uint32_t pixel_clk,
 
 	_ipu_lock(ipu);
 
-	_ipu_di_data_wave_config(ipu, disp, SYNC_WAVE, div - 1, div - 1);
-	_ipu_di_data_pin_config(ipu, disp, SYNC_WAVE, DI_PIN15, 3, 0, div * 2);
+//	_ipu_di_data_wave_config(ipu, disp, SYNC_WAVE, div - 1, div - 1);
+//	_ipu_di_data_pin_config(ipu, disp, SYNC_WAVE, DI_PIN15, 3, 0, div * 2);
 
 	map = _ipu_pixfmt_to_map(pixel_fmt);
 	if (map < 0) {
@@ -1527,6 +1528,8 @@ int32_t ipu_init_sync_panel(struct ipu_soc *ipu, int disp, uint32_t pixel_clk,
 		if (sig.Vsync_pol)
 			di_gen |= DI_GEN_POLARITY_2;
 	} else {
+#if 1
+
 		/* Setup internal HSYNC waveform */
 		_ipu_di_sync_config(ipu, disp, 1, h_total - 1, DI_SYNC_CLK,
 					0, DI_SYNC_NONE, 0, DI_SYNC_NONE, 0, DI_SYNC_NONE,
@@ -1552,8 +1555,13 @@ int32_t ipu_init_sync_panel(struct ipu_soc *ipu, int disp, uint32_t pixel_clk,
 				    DI_SYNC_NONE, 0, 0);
 		_ipu_di_sync_config(ipu, disp, 5, 0, DI_SYNC_CLK,
 				    h_sync_width + h_start_width, DI_SYNC_CLK,
-				    width, 4, 0, DI_SYNC_NONE, DI_SYNC_NONE, 0,
+				    width + 1, 4, 1, DI_SYNC_NONE, DI_SYNC_NONE, 0,
 				    0);
+#endif
+//		_ipu_di_sync_config(ipu, disp, 5, 0, DI_SYNC_CLK,
+//				    h_sync_width + h_start_width, DI_SYNC_CLK,
+//				    width , 4, 0, DI_SYNC_NONE, DI_SYNC_NONE, 0,
+//				    0);
 
 		/* set VGA delayed hsync/vsync no matter VGA enabled */
 		if (disp) {

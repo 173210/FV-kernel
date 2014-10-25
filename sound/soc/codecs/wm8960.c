@@ -71,6 +71,7 @@ static const u16 wm8960_reg[WM8960_CACHEREGNUM] = {
 };
 
 struct wm8960_priv {
+	struct snd_soc_codec *codec;
 	enum snd_soc_control_type control_type;
 	void *control_data;
 	int (*set_bias_level)(struct snd_soc_codec *,
@@ -126,8 +127,7 @@ static int wm8960_set_deemph(struct snd_soc_codec *codec)
 
 	dev_dbg(codec->dev, "Set deemphasis %d\n", val);
 
-	return snd_soc_update_bits(codec, WM8960_DACCTL1,
-				   0x6, val);
+	return snd_soc_update_bits(codec, WM8960_DACCTL1, 0x6, val);
 }
 
 static int wm8960_get_deemph(struct snd_kcontrol *kcontrol,
@@ -153,6 +153,50 @@ static int wm8960_put_deemph(struct snd_kcontrol *kcontrol,
 	wm8960->deemph = deemph;
 
 	return wm8960_set_deemph(codec);
+}
+
+
+static int hp_pop_event(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	int delay = 500;	/* ms */
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		msleep(delay);
+		break;
+
+	case SND_SOC_DAPM_POST_PMU:
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * using codec assist to small pop, hp_powerup or lineout_powerup
+ * should stay setting until vag_powerup is fully ramped down,
+ * vag fully ramped down require 400ms.
+ */
+static int spk_pop_event(struct snd_soc_dapm_widget *w,
+			 struct snd_kcontrol *kcontrol, int event)
+{
+	int delay = 500;	/* ms */
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		msleep(delay);
+		break;
+
+	case SND_SOC_DAPM_POST_PMU:
+		break;
+	default:
+		break;
+	}
+
+	return 0;
 }
 
 static const DECLARE_TLV_DB_SCALE(adc_tlv, -9700, 50, 0);
@@ -187,7 +231,7 @@ SOC_SINGLE("PCM Playback -6dB Switch", WM8960_DACCTL1, 7, 1, 0),
 SOC_ENUM("ADC Polarity", wm8960_enum[0]),
 SOC_SINGLE("ADC High Pass Filter Switch", WM8960_DACCTL1, 0, 1, 0),
 
-SOC_ENUM("DAC Polarity", wm8960_enum[2]),
+SOC_ENUM("DAC Polarity", wm8960_enum[1]),
 SOC_SINGLE_BOOL_EXT("DAC Deemphasis Switch", 0,
 		    wm8960_get_deemph, wm8960_put_deemph),
 
@@ -291,11 +335,27 @@ SND_SOC_DAPM_MIXER("Right Output Mixer", WM8960_POWER3, 2, 0,
 	&wm8960_routput_mixer[0],
 	ARRAY_SIZE(wm8960_routput_mixer)),
 
+#if 0
 SND_SOC_DAPM_PGA("LOUT1 PGA", WM8960_POWER2, 6, 0, NULL, 0),
 SND_SOC_DAPM_PGA("ROUT1 PGA", WM8960_POWER2, 5, 0, NULL, 0),
 
 SND_SOC_DAPM_PGA("Left Speaker PGA", WM8960_POWER2, 4, 0, NULL, 0),
 SND_SOC_DAPM_PGA("Right Speaker PGA", WM8960_POWER2, 3, 0, NULL, 0),
+#else
+SND_SOC_DAPM_PGA_E("LOUT1 PGA", WM8960_POWER2, 6, 0, NULL, 0,
+		   hp_pop_event,
+		   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+SND_SOC_DAPM_PGA_E("ROUT1 PGA", WM8960_POWER2, 5, 0, NULL, 0,
+		   hp_pop_event,
+		   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+
+SND_SOC_DAPM_PGA_E("Left Speaker PGA", WM8960_POWER2, 4, 0, NULL, 0,
+		   spk_pop_event,
+		   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+SND_SOC_DAPM_PGA_E("Right Speaker PGA", WM8960_POWER2, 3, 0, NULL, 0,
+		   spk_pop_event,
+		   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU),
+#endif
 
 SND_SOC_DAPM_PGA("Right Speaker Output", WM8960_CLASSD1, 7, 0, NULL, 0),
 SND_SOC_DAPM_PGA("Left Speaker Output", WM8960_CLASSD1, 6, 0, NULL, 0),
@@ -525,6 +585,8 @@ static int wm8960_hw_params(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_FORMAT_S24_LE:
 		iface |= 0x0008;
 		break;
+	default:
+		return -EINVAL;
 	}
 
 	/* Update filters for the new rate */
@@ -840,6 +902,10 @@ static int wm8960_set_dai_clkdiv(struct snd_soc_dai *codec_dai,
 		reg = snd_soc_read(codec, WM8960_CLOCK2) & 0x03f;
 		snd_soc_write(codec, WM8960_CLOCK2, reg | div);
 		break;
+	case WM8960_BCLKDIV:
+		reg = snd_soc_read(codec, WM8960_CLOCK2) & 0x1f0;
+		snd_soc_write(codec, WM8960_CLOCK2, reg | div);
+		break;
 	case WM8960_TOCLKSEL:
 		reg = snd_soc_read(codec, WM8960_ADDCTL1) & 0x1fd;
 		snd_soc_write(codec, WM8960_ADDCTL1, reg | div);
@@ -902,6 +968,7 @@ static int wm8960_suspend(struct snd_soc_codec *codec, pm_message_t state)
 static int wm8960_resume(struct snd_soc_codec *codec)
 {
 	struct wm8960_priv *wm8960 = snd_soc_codec_get_drvdata(codec);
+#if 0
 	int i;
 	u8 data[2];
 	u16 *cache = codec->reg_cache;
@@ -912,7 +979,7 @@ static int wm8960_resume(struct snd_soc_codec *codec)
 		data[1] = cache[i] & 0x00ff;
 		codec->hw_write(codec->control_data, data, 2);
 	}
-
+#endif
 	wm8960->set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 	return 0;
 }
@@ -926,6 +993,7 @@ static int wm8960_probe(struct snd_soc_codec *codec)
 
 	wm8960->set_bias_level = wm8960_set_bias_level_out3;
 	codec->control_data = wm8960->control_data;
+	wm8960->codec = codec;
 
 	if (!pdata) {
 		dev_warn(codec->dev, "No platform data supplied\n");
@@ -974,6 +1042,19 @@ static int wm8960_probe(struct snd_soc_codec *codec)
 	snd_soc_write(codec, WM8960_LOUT2, reg | 0x100);
 	reg = snd_soc_read(codec, WM8960_ROUT2);
 	snd_soc_write(codec, WM8960_ROUT2, reg | 0x100);
+
+	/* SYSCLK from MCLK */
+	snd_soc_update_bits(codec, WM8960_CLOCK1, 0x1, 0);
+	/* ADCLRC/GPIO1 pin select GPIO pin */
+	snd_soc_update_bits(codec, WM8960_IFACE2, 0x40, 0x40);
+	/* Headphone Switch Input Select GPIO1 && GPIO1 used for jack dectect input */
+	snd_soc_update_bits(codec, WM8960_ADDCTL4, 0x7c, 0x00);
+	/* Slow Clock Enable, Fast Response */
+	snd_soc_update_bits(codec, WM8960_ADDCTL1, 0x03, 0x03);
+	/* Headphone Switch Enable, high = speaker */
+	snd_soc_update_bits(codec, WM8960_ADDCTL2, 0x03 << 5, 0x03 << 5);
+
+	snd_soc_update_bits(codec, WM8960_DACCTL2, 0xc, 0xc);
 
 	snd_soc_add_controls(codec, wm8960_snd_controls,
 				     ARRAY_SIZE(wm8960_snd_controls));
@@ -1031,6 +1112,14 @@ static __devexit int wm8960_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
+static void wm8960_i2c_shutdown(struct i2c_client *client)
+{
+	struct wm8960_priv *wm8960 = i2c_get_clientdata(client);
+	struct snd_soc_codec *codec = wm8960->codec;
+
+	wm8960_reset(codec);
+}
+
 static const struct i2c_device_id wm8960_i2c_id[] = {
 	{ "wm8960", 0 },
 	{ }
@@ -1044,6 +1133,7 @@ static struct i2c_driver wm8960_i2c_driver = {
 	},
 	.probe =    wm8960_i2c_probe,
 	.remove =   __devexit_p(wm8960_i2c_remove),
+	.shutdown = wm8960_i2c_shutdown,
 	.id_table = wm8960_i2c_id,
 };
 #endif
@@ -1051,12 +1141,14 @@ static struct i2c_driver wm8960_i2c_driver = {
 static int __init wm8960_modinit(void)
 {
 	int ret = 0;
+
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 	ret = i2c_add_driver(&wm8960_i2c_driver);
 	if (ret != 0) {
 		printk(KERN_ERR "Failed to register WM8960 I2C driver: %d\n",
 		       ret);
 	}
+
 #endif
 	return ret;
 }

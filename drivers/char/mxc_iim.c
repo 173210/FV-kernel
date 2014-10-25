@@ -33,7 +33,7 @@
 #include <linux/fsl_devices.h>
 #include "mxc_iim.h"
 
-static struct mxc_iim_platform_data *iim_data;
+struct mxc_iim_platform_data *iim_data;
 
 
 #ifdef MXC_IIM_DEBUG
@@ -75,7 +75,7 @@ static inline void dump_reg(void)
 }
 #endif
 
-static inline void mxc_iim_disable_irq(void)
+inline void mxc_iim_disable_irq(void)
 {
 	struct iim_regs *iim_reg_base = (struct iim_regs *)iim_data->virt_base;
 
@@ -107,7 +107,7 @@ static inline void fuse_op_start(void)
 	dev_dbg(iim_data->dev, "<= %s\n", __func__);
 }
 
-static u32 sense_fuse(u32 bank, u32 row, u32 bit)
+u32 sense_fuse(u32 bank, u32 row, u32 bit)
 {
 	u32 addr, addr_l, addr_h;
 	s32 err = 0;

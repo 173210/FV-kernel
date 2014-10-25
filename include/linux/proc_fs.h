@@ -47,6 +47,7 @@ typedef	int (read_proc_t)(char *page, char **start, off_t off,
 			  int count, int *eof, void *data);
 typedef	int (write_proc_t)(struct file *file, const char __user *buffer,
 			   unsigned long count, void *data);
+typedef	int (ioctl_proc_t) (struct file *, unsigned int, unsigned long);
 
 struct proc_dir_entry {
 	unsigned int low_ino;
@@ -71,6 +72,7 @@ struct proc_dir_entry {
 	void *data;
 	read_proc_t *read_proc;
 	write_proc_t *write_proc;
+	ioctl_proc_t *ioctl_proc;
 	atomic_t count;		/* use count */
 	int pde_users;	/* number of callers into module in progress */
 	spinlock_t pde_unload_lock; /* proc_fops checks and pde_users bumps */

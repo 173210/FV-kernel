@@ -27,6 +27,14 @@ config LOGO_LINUX_CLUT224
 	bool "Standard 224-color Linux logo"
 	default y
 
+config LOGO_SII_CLUT224
+	bool "SII 224-color Linux logo"
+	default y
+
+config LOGO_UPGRADE_CLUT224
+	bool "upgrade 224-color Linux logo"
+	default y
+
 config LOGO_BLACKFIN_VGA16
 	bool "16-colour Blackfin Processor Linux logo"
 	depends on BLACKFIN

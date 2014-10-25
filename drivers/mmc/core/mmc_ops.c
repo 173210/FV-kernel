@@ -20,6 +20,7 @@
 #include "core.h"
 #include "mmc_ops.h"
 
+
 static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 {
 	int err;
@@ -43,6 +44,13 @@ static int _mmc_select_card(struct mmc_host *host, struct mmc_card *card)
 	if (err)
 		return err;
 
+	if(card){
+		if (cmd.resp[0]&R1_CARD_IS_LOCKED) {
+			card->encrypted = true;
+		}else{
+			card->encrypted = false;
+		}
+	}
 	return 0;
 }
 

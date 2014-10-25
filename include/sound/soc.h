@@ -34,53 +34,99 @@
 #define SOC_SINGLE_VALUE_EXT(xreg, xmax, xinvert) \
 	((unsigned long)&(struct soc_mixer_control) \
 	{.reg = xreg, .max = xmax, .platform_max = xmax, .invert = xinvert})
+
 #define SOC_SINGLE(xname, reg, shift, max, invert) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
-	.info = snd_soc_info_volsw, .get = snd_soc_get_volsw,\
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = xname, \
+	.info = snd_soc_info_volsw, \
+	.get = snd_soc_get_volsw,\
 	.put = snd_soc_put_volsw, \
-	.private_value =  SOC_SINGLE_VALUE(reg, shift, max, invert) }
+	.private_value =  SOC_SINGLE_VALUE(reg, shift, max, invert) \
+}
+
 #define SOC_SINGLE_TLV(xname, reg, shift, max, invert, tlv_array) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
-	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |\
-		 SNDRV_CTL_ELEM_ACCESS_READWRITE,\
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = xname, \
+	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ | SNDRV_CTL_ELEM_ACCESS_READWRITE,\
 	.tlv.p = (tlv_array), \
-	.info = snd_soc_info_volsw, .get = snd_soc_get_volsw,\
+	.info = snd_soc_info_volsw, \
+	.get = snd_soc_get_volsw,\
 	.put = snd_soc_put_volsw, \
-	.private_value =  SOC_SINGLE_VALUE(reg, shift, max, invert) }
+	.private_value = SOC_SINGLE_VALUE(reg, shift, max, invert) \
+}
+
 #define SOC_DOUBLE(xname, xreg, shift_left, shift_right, xmax, xinvert) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname),\
-	.info = snd_soc_info_volsw, .get = snd_soc_get_volsw, \
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = (xname),\
+	.info = snd_soc_info_volsw, \
+	.get = snd_soc_get_volsw, \
 	.put = snd_soc_put_volsw, \
 	.private_value = (unsigned long)&(struct soc_mixer_control) \
-		{.reg = xreg, .shift = shift_left, .rshift = shift_right, \
-		 .max = xmax, .platform_max = xmax, .invert = xinvert} }
+		{ \
+			.reg = xreg, \
+			.shift = shift_left, \
+			.rshift = shift_right, \
+			.max = xmax, \
+			.platform_max = xmax, \
+			.invert = xinvert \
+		} \
+}
+
 #define SOC_DOUBLE_R(xname, reg_left, reg_right, xshift, xmax, xinvert) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = (xname), \
 	.info = snd_soc_info_volsw_2r, \
-	.get = snd_soc_get_volsw_2r, .put = snd_soc_put_volsw_2r, \
+	.get = snd_soc_get_volsw_2r, \
+	.put = snd_soc_put_volsw_2r, \
 	.private_value = (unsigned long)&(struct soc_mixer_control) \
-		{.reg = reg_left, .rreg = reg_right, .shift = xshift, \
-		.max = xmax, .platform_max = xmax, .invert = xinvert} }
+		{ \
+			.reg = reg_left, \
+			.rreg = reg_right, \
+			.shift = xshift, \
+			.max = xmax, \
+			.platform_max = xmax, \
+			.invert = xinvert \
+		} \
+}
+
 #define SOC_DOUBLE_TLV(xname, xreg, shift_left, shift_right, xmax, xinvert, tlv_array) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname),\
-	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |\
-		 SNDRV_CTL_ELEM_ACCESS_READWRITE,\
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = (xname),\
+	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ | SNDRV_CTL_ELEM_ACCESS_READWRITE,\
 	.tlv.p = (tlv_array), \
-	.info = snd_soc_info_volsw, .get = snd_soc_get_volsw, \
+	.info = snd_soc_info_volsw, \
+	.get = snd_soc_get_volsw, \
 	.put = snd_soc_put_volsw, \
 	.private_value = (unsigned long)&(struct soc_mixer_control) \
-		{.reg = xreg, .shift = shift_left, .rshift = shift_right,\
-		 .max = xmax, .platform_max = xmax, .invert = xinvert} }
+		{ \
+			.reg = xreg, \
+			.shift = shift_left, \
+			.rshift = shift_right,\
+			.max = xmax, \
+			.platform_max = xmax, \
+			.invert = xinvert \
+		} \
+}
+
 #define SOC_DOUBLE_R_TLV(xname, reg_left, reg_right, xshift, xmax, xinvert, tlv_array) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname),\
-	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |\
-		 SNDRV_CTL_ELEM_ACCESS_READWRITE,\
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
+	.name = (xname),\
+	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ | SNDRV_CTL_ELEM_ACCESS_READWRITE,\
 	.tlv.p = (tlv_array), \
 	.info = snd_soc_info_volsw_2r, \
-	.get = snd_soc_get_volsw_2r, .put = snd_soc_put_volsw_2r, \
+	.get = snd_soc_get_volsw_2r, \
+	.put = snd_soc_put_volsw_2r, \
 	.private_value = (unsigned long)&(struct soc_mixer_control) \
-		{.reg = reg_left, .rreg = reg_right, .shift = xshift, \
-		.max = xmax, .platform_max = xmax, .invert = xinvert} }
+		{ \
+			.reg = reg_left, \
+			.rreg = reg_right, \
+			.shift = xshift, \
+			.max = xmax, \
+			.platform_max = xmax, \
+			.invert = xinvert, \
+		} \
+}
+
 #define SOC_DOUBLE_S8_TLV(xname, xreg, xmin, xmax, tlv_array) \
 {	.iface  = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname), \
 	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ | \

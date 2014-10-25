@@ -24,36 +24,43 @@ struct da9052_onkey_data {
 	struct da9052 *da9052;
 	struct da9052_eh_nb eh_data;
 	struct input_dev *input;
+	struct delayed_work polling_work;
 };
-
-/* Flag to enable key events during suspend */
-static bool enable_onkey_events;
-
-static void da9052_onkey_report_event(struct da9052_eh_nb *eh_data,
-				unsigned int event)
+int lastvalue=0; //上个on key状态
+static void da9052_onkey_work_func(struct work_struct *work)
 {
 	struct da9052_onkey_data *da9052_onkey =
-		container_of(eh_data, struct da9052_onkey_data, eh_data);
+		container_of(work, struct da9052_onkey_data, polling_work.work);
 	struct da9052_ssc_msg msg;
 	unsigned int ret;
-
-	/* Read the Evnet Register */
-	msg.addr = DA9052_EVENTB_REG;
+	int value;
 	da9052_lock(da9052_onkey->da9052);
+	msg.addr = DA9052_STATUSA_REG;
 	ret = da9052_onkey->da9052->read(da9052_onkey->da9052, &msg);
 	if (ret) {
 		da9052_unlock(da9052_onkey->da9052);
 		return;
 	}
 	da9052_unlock(da9052_onkey->da9052);
-	msg.data = msg.data & DA9052_EVENTB_ENONKEY;
-
-	/* We need onkey events only in suspend mode */
-	if (enable_onkey_events) {
-		input_report_key(da9052_onkey->input, KEY_POWER, msg.data);
+	value = (msg.data & DA9052_STATUSA_NONKEY) ? 0 : 1;
+	if(value != lastvalue){
+		input_report_key(da9052_onkey->input, KEY_POWER, value);
 		input_sync(da9052_onkey->input);
 	}
-	pr_debug("DA9052 ONKEY EVENT REPORTED\n");
+	/* if key down, polling for up */
+	if (value)
+		schedule_delayed_work(&da9052_onkey->polling_work, HZ/20);
+	lastvalue = value;
+}
+
+static void da9052_onkey_report_event(struct da9052_eh_nb *eh_data,
+				unsigned int event)
+{
+	struct da9052_onkey_data *da9052_onkey =
+		container_of(eh_data, struct da9052_onkey_data, eh_data);
+	cancel_delayed_work(&da9052_onkey->polling_work);
+	schedule_delayed_work(&da9052_onkey->polling_work, 0);
+
 }
 
 static int __devinit da9052_onkey_probe(struct platform_device *pdev)
@@ -81,6 +88,7 @@ static int __devinit da9052_onkey_probe(struct platform_device *pdev)
 	da9052_onkey->input->name = "da9052-onkey";
 	da9052_onkey->input->phys = "da9052-onkey/input0";
 	da9052_onkey->input->dev.parent = &pdev->dev;
+	INIT_DELAYED_WORK(&da9052_onkey->polling_work, da9052_onkey_work_func);
 
 	/* Set the EH structure */
 	da9052_onkey->eh_data.eve_type = ONKEY_EVE;
@@ -123,34 +131,26 @@ static int __devexit da9052_onkey_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-static int da9052_onkey_suspend(struct device *dev)
+static int da9052_onkey_suspend(struct platform_device *pdev,
+				 pm_message_t state)
 {
-	enable_onkey_events = true;
+	struct da9052_onkey_data *da9052_onkey = platform_get_drvdata(pdev);
+	cancel_delayed_work(&da9052_onkey->polling_work);
+	if(lastvalue){
+		input_report_key(da9052_onkey->input, KEY_POWER, 0);
+		input_sync(da9052_onkey->input);
+	}
+	lastvalue = 0;
 	return 0;
 }
-
-static int da9052_onkey_resume(struct device *dev)
-{
-	enable_onkey_events = false;
-	return 0;
-}
-
-static const struct dev_pm_ops da9052_onkey_pm_ops = {
-	.suspend	= da9052_onkey_suspend,
-	.resume		= da9052_onkey_resume,
-};
-#else
-static const struct dev_pm_ops da9052_onkey_pm_ops = {};
-#endif
 
 static struct platform_driver da9052_onkey_driver = {
 	.probe		= da9052_onkey_probe,
 	.remove		= __devexit_p(da9052_onkey_remove),
+	.suspend	= da9052_onkey_suspend,
 	.driver		= {
 		.name	= "da9052-onkey",
 		.owner	= THIS_MODULE,
-		.pm	= &da9052_onkey_pm_ops,
 	}
 };
 

@@ -77,6 +77,7 @@
 
 #define DA9053_VERSION_AA 1
 #define DA9053_VERSION_BB 2
+#define DA9053_VERSION_GSL 3
 
 struct da9052_ssc_msg {
 	unsigned char	data;
@@ -89,10 +90,11 @@ struct ssc_cache_entry{
 	 unsigned char	status:4;
 };
 
-struct da9052_eh_nb{
+struct da9052_eh_nb {
 	struct list_head nb_list;
-	unsigned char	eve_type;
+	int eve_type;
 	void (*call_back)(struct da9052_eh_nb *, unsigned int);
+	void *priv;
 };
 
 struct da9052_regulator_init_data {
@@ -230,4 +232,8 @@ int da9052_manual_read(struct da9052 *da9052,
 		unsigned char channel);
 void da9053_power_off(void);
 int da9053_get_chip_version(void);
+
+int da9052_read(struct da9052 *da9052, u8 reg_address, u8 *reg_data);
+int da9052_write(struct da9052 *da9052, u8 reg_address, u8 val);
+
 #endif /* __LINUX_MFD_DA9052_DA9052_H */

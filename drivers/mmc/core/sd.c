@@ -22,6 +22,8 @@
 #include "bus.h"
 #include "mmc_ops.h"
 #include "sd_ops.h"
+#include "mmc_lock.h"
+#include "mmc_proc.h"
 
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
@@ -723,6 +725,17 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_select_card(card);
 		if (err)
 			return err;
+		if(card->encrypted){
+			err = mmc_lock_unlock(card, MMC_LOCK_MODE_UNLOCK);
+			if(err){
+				mmc_proc_update(1, "unknown");
+				printk(KERN_ERR"unlock card error\n");
+				goto free_card;
+			}
+			mmc_proc_update(1, "locked");
+		}else{
+			mmc_proc_update(1, "user");
+		}
 	}
 
 	err = mmc_sd_setup_card(host, card, oldcard != NULL);
@@ -824,6 +837,7 @@ static void mmc_sd_remove(struct mmc_host *host)
 
 	mmc_remove_card(host->card);
 	host->card = NULL;
+	mmc_proc_update(1, "none");
 }
 
 /*
@@ -982,8 +996,9 @@ int mmc_attach_sd(struct mmc_host *host)
 	WARN_ON(!host->claimed);
 
 	err = mmc_send_app_op_cond(host, 0, &ocr);
-	if (err)
+	if (err){
 		return err;
+	}
 
 	mmc_sd_attach_bus_ops(host);
 	if (host->ocr_avail_sd)

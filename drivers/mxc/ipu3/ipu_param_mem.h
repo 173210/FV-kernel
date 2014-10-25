@@ -244,7 +244,12 @@ static inline void _ipu_ch_param_init(struct ipu_soc *ipu, int ch,
 
 	memset(&params, 0, sizeof(params));
 
-	ipu_ch_param_set_field(&params, 0, 125, 13, width - 1);
+	if((ch == 12) || (ch == 21)) {
+		ipu_ch_param_set_field(&params, 0, 125, 13, width -1);
+	} else {
+		ipu_ch_param_set_field(&params, 0, 125, 13, width );
+	}
+//	ipu_ch_param_set_field(&params, 0, 125, 13, width - 1);
 
 	if ((ch == 8) || (ch == 9) || (ch == 10)) {
 		ipu_ch_param_set_field(&params, 0, 138, 12, (height / 2) - 1);

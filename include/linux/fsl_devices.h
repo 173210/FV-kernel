@@ -315,6 +315,7 @@ struct mxc_audio_platform_data {
 
 	int (*init) (void);	/* board specific init */
 	int (*amp_enable) (int enable);
+	int (*osc_enable) (int enable);
 	int (*clock_enable) (int enable);
 	int (*finit) (void);	/* board specific finit */
 	void *priv;		/* used by board specific functions */

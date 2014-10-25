@@ -77,24 +77,26 @@ struct mmc_blk_data {
 	unsigned int	read_only;
 };
 
+
 static DEFINE_MUTEX(open_lock);
 
 module_param(perdev_minors, int, 0444);
 MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
 
+
 static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
 {
-	struct mmc_blk_data *md;
+    struct mmc_blk_data *md;
 
-	mutex_lock(&open_lock);
-	md = disk->private_data;
-	if (md && md->usage == 0)
-		md = NULL;
-	if (md)
-		md->usage++;
-	mutex_unlock(&open_lock);
+    mutex_lock(&open_lock);
+    md = disk->private_data;
+    if (md && md->usage == 0)
+	md = NULL;
+    if (md)
+	md->usage++;
+    mutex_unlock(&open_lock);
 
-	return md;
+    return md;
 }
 
 static void mmc_blk_put(struct mmc_blk_data *md)
@@ -154,10 +156,25 @@ mmc_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
+static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
+	unsigned cmd, unsigned long arg)
+{
+    struct mmc_blk_data *md = bdev->bd_disk->private_data;
+    struct mmc_card *card = md->queue.card;
+    int err = 0;
+
+    mmc_claim_host(card->host);
+    if(cmd == 0 && arg < 0xf){
+	err = mmc_lock_unlock(card, (char)arg&0x0f);
+    }
+    mmc_release_host(card->host);
+    return err;
+}
 static const struct block_device_operations mmc_bdops = {
 	.open			= mmc_blk_open,
 	.release		= mmc_blk_release,
 	.getgeo			= mmc_blk_getgeo,
+	.ioctl			= mmc_blk_ioctl,
 	.owner			= THIS_MODULE,
 };
 
@@ -721,7 +738,9 @@ static int mmc_blk_probe(struct mmc_card *card)
 
 	mmc_set_drvdata(card, md);
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
-	mmc_set_bus_resume_policy(card->host, 1);
+	if(card->host->caps&MMC_CAP_NONREMOVABLE){
+		mmc_set_bus_resume_policy(card->host, 1);
+	}
 #endif
 	add_disk(md->disk);
 	return 0;
@@ -748,7 +767,9 @@ static void mmc_blk_remove(struct mmc_card *card)
 	}
 	mmc_set_drvdata(card, NULL);
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
-	mmc_set_bus_resume_policy(card->host, 0);
+	if(card->host->caps&MMC_CAP_NONREMOVABLE){
+		mmc_set_bus_resume_policy(card->host, 0);
+	}
 #endif
 }
 

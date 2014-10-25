@@ -17,7 +17,7 @@
 #include <linux/backlight.h>
 #include <linux/lcd.h>
 #include <linux/slab.h>
-
+#include <linux/earlysuspend.h>
 #include <video/platform_lcd.h>
 
 struct platform_lcd {
@@ -27,6 +27,9 @@ struct platform_lcd {
 
 	unsigned int		 power;
 	unsigned int		 suspended : 1;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	struct early_suspend early_suspend;
+#endif
 };
 
 static inline struct platform_lcd *to_our_lcd(struct lcd_device *lcd)
@@ -54,6 +57,28 @@ static int platform_lcd_set_power(struct lcd_device *lcd, int power)
 
 	return 0;
 }
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void platform_lcd_early_suspend(struct early_suspend *handler)
+{
+	struct platform_lcd *plcd;
+	plcd = container_of(handler, struct platform_lcd, early_suspend);
+
+	plcd->suspended = 1;
+	platform_lcd_set_power(plcd->lcd, plcd->power);
+
+	return ;
+
+}
+static void platform_lcd_later_resume(struct early_suspend *handler)
+{
+	struct platform_lcd *plcd;
+	plcd = container_of(handler, struct platform_lcd, early_suspend);
+
+	plcd->suspended = 0;
+	platform_lcd_set_power(plcd->lcd, plcd->power);
+	return ;
+}
+#endif
 
 static int platform_lcd_match(struct lcd_device *lcd, struct fb_info *info)
 {
@@ -93,6 +118,12 @@ static int __devinit platform_lcd_probe(struct platform_device *pdev)
 
 	plcd->us = dev;
 	plcd->pdata = pdata;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	plcd->early_suspend.suspend = platform_lcd_early_suspend;
+	plcd->early_suspend.resume = platform_lcd_later_resume;
+	plcd->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
+	register_early_suspend(&plcd->early_suspend);
+#endif
 	plcd->lcd = lcd_device_register(dev_name(dev), dev,
 					plcd, &platform_lcd_ops);
 	if (IS_ERR(plcd->lcd)) {
@@ -115,6 +146,10 @@ static int __devexit platform_lcd_remove(struct platform_device *pdev)
 {
 	struct platform_lcd *plcd = platform_get_drvdata(pdev);
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	if(plcd->early_suspend.suspend)
+	unregister_early_suspend(&plcd->early_suspend);
+#endif
 	lcd_device_unregister(plcd->lcd);
 	kfree(plcd);
 
@@ -122,6 +157,14 @@ static int __devexit platform_lcd_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
+static void platform_lcd_shutdown(struct platform_device *pdev)
+{
+	struct platform_lcd *plcd = platform_get_drvdata(pdev);
+
+	platform_lcd_set_power(plcd->lcd, FB_BLANK_POWERDOWN);
+}
+
+#ifndef CONFIG_HAS_EARLYSUSPEND
 static int platform_lcd_suspend(struct platform_device *pdev, pm_message_t st)
 {
 	struct platform_lcd *plcd = platform_get_drvdata(pdev);
@@ -141,6 +184,7 @@ static int platform_lcd_resume(struct platform_device *pdev)
 
 	return 0;
 }
+#endif
 #else
 #define platform_lcd_suspend NULL
 #define platform_lcd_resume NULL
@@ -153,13 +197,17 @@ static struct platform_driver platform_lcd_driver = {
 	},
 	.probe		= platform_lcd_probe,
 	.remove		= __devexit_p(platform_lcd_remove),
+	.shutdown	= platform_lcd_shutdown, 
+#ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend        = platform_lcd_suspend,
 	.resume         = platform_lcd_resume,
+#endif
 };
-
 static int __init platform_lcd_init(void)
 {
-	return platform_driver_register(&platform_lcd_driver);
+	int ret;
+	ret = platform_driver_register(&platform_lcd_driver);
+	return ret;
 }
 
 static void __exit platform_lcd_cleanup(void)
