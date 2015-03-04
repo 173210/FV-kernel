@@ -326,6 +326,9 @@ enum ps3_match_id {
 	PS3_MATCH_ID_SOUND		= 9,
 	PS3_MATCH_ID_GPU		= 10,
 	PS3_MATCH_ID_LPM		= 11,
+	PS3_MATCH_ID_STOR_VFLASH	= 12,
+	PS3_MATCH_ID_DISPATCHER_MANAGER	= 13,
+	PS3_MATCH_ID_STOR_ENCDEC	= 14,
 };
 
 enum ps3_match_sub_id {
@@ -333,18 +336,21 @@ enum ps3_match_sub_id {
 	PS3_MATCH_SUB_ID_GPU_RAMDISK	= 2,
 };
 
-#define PS3_MODULE_ALIAS_EHCI		"ps3:1:0"
-#define PS3_MODULE_ALIAS_OHCI		"ps3:2:0"
-#define PS3_MODULE_ALIAS_GELIC		"ps3:3:0"
-#define PS3_MODULE_ALIAS_AV_SETTINGS	"ps3:4:0"
-#define PS3_MODULE_ALIAS_SYSTEM_MANAGER	"ps3:5:0"
-#define PS3_MODULE_ALIAS_STOR_DISK	"ps3:6:0"
-#define PS3_MODULE_ALIAS_STOR_ROM	"ps3:7:0"
-#define PS3_MODULE_ALIAS_STOR_FLASH	"ps3:8:0"
-#define PS3_MODULE_ALIAS_SOUND		"ps3:9:0"
-#define PS3_MODULE_ALIAS_GPU_FB		"ps3:10:1"
-#define PS3_MODULE_ALIAS_GPU_RAMDISK	"ps3:10:2"
-#define PS3_MODULE_ALIAS_LPM		"ps3:11:0"
+#define PS3_MODULE_ALIAS_EHCI			"ps3:1:0"
+#define PS3_MODULE_ALIAS_OHCI			"ps3:2:0"
+#define PS3_MODULE_ALIAS_GELIC			"ps3:3:0"
+#define PS3_MODULE_ALIAS_AV_SETTINGS		"ps3:4:0"
+#define PS3_MODULE_ALIAS_SYSTEM_MANAGER		"ps3:5:0"
+#define PS3_MODULE_ALIAS_STOR_DISK		"ps3:6:0"
+#define PS3_MODULE_ALIAS_STOR_ROM		"ps3:7:0"
+#define PS3_MODULE_ALIAS_STOR_FLASH		"ps3:8:0"
+#define PS3_MODULE_ALIAS_SOUND			"ps3:9:0"
+#define PS3_MODULE_ALIAS_GPU_FB			"ps3:10:1"
+#define PS3_MODULE_ALIAS_GPU_RAMDISK		"ps3:10:2"
+#define PS3_MODULE_ALIAS_LPM			"ps3:11:0"
+#define PS3_MODULE_ALIAS_STOR_VFLASH		"ps3:12:0"
+#define PS3_MODULE_ALIAS_DISPATCHER_MANAGER	"ps3:13:0"
+#define PS3_MODULE_ALIAS_STOR_ENCDEC		"ps3:14:0"
 
 enum ps3_system_bus_device_type {
 	PS3_DEVICE_TYPE_IOC0 = 1,
@@ -446,12 +452,17 @@ struct ps3_sys_manager_ops {
 	struct ps3_system_bus_device *dev;
 	void (*power_off)(struct ps3_system_bus_device *dev);
 	void (*restart)(struct ps3_system_bus_device *dev);
+	int (*do_request)(struct ps3_system_bus_device *dev,
+		const void *sendbuf, unsigned int sendbuf_size,
+		void *recvbuf, unsigned int recvbuf_size);
 };
 
 void ps3_sys_manager_register_ops(const struct ps3_sys_manager_ops *ops);
 void __noreturn ps3_sys_manager_power_off(void);
 void __noreturn ps3_sys_manager_restart(void);
 void __noreturn ps3_sys_manager_halt(void);
+int ps3_sys_manager_do_request(const void *sendbuf, unsigned int sendbuf_size,
+	void *recvbuf, unsigned int recvbuf_size);
 int ps3_sys_manager_get_wol(void);
 void ps3_sys_manager_set_wol(int state);
 
