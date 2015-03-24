@@ -212,6 +212,7 @@ typedef enum {
 	FL_SYNCING,
 	FL_CACHEDPRG,
 	FL_PM_SUSPENDED,
+	FL_STATE_MAX
 } nand_state_t;
 
 /* Keep gcc happy */
@@ -370,6 +371,10 @@ struct nand_chip {
 	void		(*write_buf)(struct mtd_info *mtd, const uint8_t *buf, int len);
 	void		(*read_buf)(struct mtd_info *mtd, uint8_t *buf, int len);
 	int		(*verify_buf)(struct mtd_info *mtd, const uint8_t *buf, int len);
+#ifdef CONFIG_MTD_NAND_VERIFY_WRITE_SUBPAGE
+	int		(*verify_buf_column)(struct mtd_info *mtd, const uint8_t *buf, int len,
+					     int column, int verify_size);
+#endif
 	void		(*select_chip)(struct mtd_info *mtd, int chip);
 	int		(*block_bad)(struct mtd_info *mtd, loff_t ofs, int getchip);
 	int		(*block_markbad)(struct mtd_info *mtd, loff_t ofs);
@@ -381,6 +386,8 @@ struct nand_chip {
 	void		(*erase_cmd)(struct mtd_info *mtd, int page);
 	int		(*scan_bbt)(struct mtd_info *mtd);
 	int		(*errstat)(struct mtd_info *mtd, struct nand_chip *this, int state, int status, int page);
+	int		(*errstat_get)(struct mtd_info *mtd, int stat, struct nand_errstat_cmd **esc, size_t *count);
+	int		(*errstat_set)(struct mtd_info *mtd, int stat, struct nand_errstat_cmd *esc, size_t count);
 	int		(*write_page)(struct mtd_info *mtd, struct nand_chip *chip,
 				      const uint8_t *buf, int page, int cached, int raw);
 
@@ -417,7 +424,15 @@ struct nand_chip {
 
 	struct nand_bbt_descr	*badblock_pattern;
 
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+	u_int16_t *page_read_count_table;
+#endif
+
 	void		*priv;
+	int maf_id;
+	int dev_id;
+	int extid3;
+	int extid4;
 };
 
 /*
@@ -430,6 +445,7 @@ struct nand_chip {
 #define NAND_MFR_RENESAS	0x07
 #define NAND_MFR_STMICRO	0x20
 #define NAND_MFR_HYNIX		0xad
+#define NAND_MFR_INFINION	0xc1
 
 /**
  * struct nand_flash_dev - NAND Flash Device ID Structure
@@ -462,8 +478,30 @@ struct nand_manufacturers {
 	char * name;
 };
 
+/**
+ * struct nand_access_timing -  NAND Flash access timing Sturct
+ * @maf_id:	manufacturer ID code of device.
+ * @dev_id:	device ID code of device
+ * @extid3:     3rd ID code
+ * @extid4:	4th ID code
+ * @hold_time:  Read/Write Enable High Hold time ( max ( tREH, tWH) )
+ * @pulse_width:Read/Write Pulse Width [ns]      ( max ( tRP ,tWP ) )
+ * @ale_delay:	ALE to RE Delay[ns]  (tAR)
+ */
+
+struct nand_access_timing {
+	int maf_id;
+	int dev_id;
+	int extid3;
+	int extid4;
+	int hold_time;
+	int pulse_width;
+	int ale_delay;
+};
+
 extern struct nand_flash_dev nand_flash_ids[];
 extern struct nand_manufacturers nand_manuf_ids[];
+extern struct nand_access_timing nand_access_timing_ids[];
 
 /**
  * struct nand_bbt_descr - bad block table descriptor

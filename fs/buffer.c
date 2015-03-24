@@ -91,7 +91,9 @@ void fastcall unlock_buffer(struct buffer_head *bh)
  */
 void __wait_on_buffer(struct buffer_head * bh)
 {
+	MARK(fs_buffer_wait_start, "%p", bh);
 	wait_on_bit(&bh->b_state, BH_Lock, sync_buffer, TASK_UNINTERRUPTIBLE);
+	MARK(fs_buffer_wait_end, "%p", bh);
 }
 
 static void

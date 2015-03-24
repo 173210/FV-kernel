@@ -8,6 +8,7 @@ ENTRY(kernel_entry)
 jiffies = JIFFIES;
 SECTIONS
 {
+#ifndef CONFIG_XIP_KERNEL
 #ifdef CONFIG_BOOT_ELF64
   /* Read-only sections, merged into text segment: */
   /* . = 0xc000000000000000; */
@@ -63,6 +64,8 @@ SECTIONS
     *(.data.init_task)
 
     *(.data)
+
+    EXTRA_RWDATA
 
     CONSTRUCTORS
   }
@@ -124,6 +127,98 @@ SECTIONS
   . = ALIGN(_PAGE_SIZE);
   __init_end = .;
   /* freed after init ends here */
+#else	/* CONFIG_XIP_KERNEL */
+  . = LOADADDR;
+  /* read-only */
+  .init :  {
+    . = ALIGN(_PAGE_SIZE);	/* Init code and data */
+    __init_begin = .;
+    _sinittext = .;
+      *(.init.text)
+    _einittext = .;
+    . = ALIGN(16);
+    __setup_start = .;
+      *(.init.setup)
+    __setup_end = .;
+
+    __initcall_start = .;
+      INITCALLS
+    __initcall_end = .;
+    __con_initcall_start = .;
+      *(.con_initcall.init)
+    __con_initcall_end = .;
+    /* .exit.text is discarded at runtime, not link time, to deal with
+     references from .rodata */
+    *(.exit.text)
+    *(.exit.data)
+    . = ALIGN(_PAGE_SIZE);
+    __initramfs_start = .;
+      *(.init.ramfs)
+    __initramfs_end = .;
+    . = ALIGN(_PAGE_SIZE);
+    __init_end = .;
+  }
+
+  .text : {
+    _text = .;  	/* Text and read-only data */
+    *(.text)
+    SCHED_TEXT
+    LOCK_TEXT
+    *(.fixup)
+    *(.gnu.warning)
+  }
+
+  SECURITY_INIT
+
+  RODATA
+
+  . = ALIGN(16);  	/* Exception table */
+  __start___ex_table = .;
+  __ex_table : { *(__ex_table) }
+  __stop___ex_table = .;
+
+  __start___dbe_table = .;	/* Exception table for data bus errors */
+  __dbe_table : { *(__dbe_table) }
+  __stop___dbe_table = .;
+
+  _etext = .;		/* End of text section */
+
+  /* writeable */
+  . = DATAADDR		;
+  _sdata = .		;
+  . = .			;
+  .data : {		/* Data */
+    _fdata = . 		;
+    . = . + DATAOFFSET;	/* for CONFIG_MAPPED_KERNEL */
+      *(.data.init_task)
+      *(.data)
+      CONSTRUCTORS
+
+      _gp = . + 0x8000;
+        *(.lit8)
+        *(.lit4)
+  /* We want the small data sections together, so single-instruction offsets
+     can access them all, and initialized data all before uninitialized, so
+     we can shorten the on-disk segment size.  */
+      *(.sdata)
+
+      . = ALIGN(_PAGE_SIZE);
+      __nosave_begin = .;
+        *(.data.nosave)
+      . = ALIGN(_PAGE_SIZE);
+      __nosave_end = .;
+
+      . = ALIGN(32);
+        *(.data.cacheline_aligned)
+      . = ALIGN(32);
+      __per_cpu_start = .;
+        *(.data.percpu)
+      __per_cpu_end = .;
+        *(.init.data)
+
+    _edata =  .;			/* End of data section */
+  }
+#endif	/* CONFIG_XIP_KERNEL */
 
   __bss_start = .;		/* BSS */
   .sbss      : {

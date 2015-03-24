@@ -20,6 +20,7 @@ obj-$(CONFIG_SPI_S3C24XX)		+= spi_s3c24xx.o
 # 	... add above this line ...
 
 # SPI protocol drivers (device/link on bus)
+obj-$(CONFIG_SPI_IOCTL)			+= spi_ioctl.o
 # 	... add above this line ...
 
 # SPI slave controller drivers (upstream link)

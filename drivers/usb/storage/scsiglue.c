@@ -157,8 +157,12 @@ static int slave_configure(struct scsi_device *sdev)
 		 * majority of devices work fine, but a few still can't
 		 * handle it.  The sd driver will simply assume those
 		 * devices are write-enabled. */
+#ifdef CONFIG_USB_STORAGE_NO_WP_DETECT
+		sdev->skip_ms_page_3f = 1;
+#else
 		if (us->flags & US_FL_NO_WP_DETECT)
 			sdev->skip_ms_page_3f = 1;
+#endif
 
 		/* A number of devices have problems with MODE SENSE for
 		 * page x08, so we will skip it. */
@@ -346,6 +350,14 @@ static int proc_info (struct Scsi_Host *host, char *buffer,
 	if (inout)
 		return length;
 
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	mutex_lock(&(us->dev_mutex));
+	if (test_bit(US_FLIDX_DISCONNECTING, &us->flags)) {
+		mutex_unlock(&us->dev_mutex);
+		return 0;
+	}
+#endif
+
 	/* print the controller name */
 	SPRINTF("   Host scsi%d: usb-storage\n", host->host_no);
 
@@ -385,6 +397,10 @@ US_DO_ALL_FLAGS
 
 		*(pos++) = '\n';
 	}
+
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	mutex_unlock(&us->dev_mutex);
+#endif
 
 	/*
 	 * Calculate start of next buffer, and return value.

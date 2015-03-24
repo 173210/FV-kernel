@@ -71,8 +71,25 @@ struct usb_hub {
 	unsigned		has_indicators:1;
 	u8			indicator[USB_MAXCHILDREN];
 	struct delayed_work	leds;
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+	char                   *force_power_off;
+	struct list_head        oc_pending_list;
+	unsigned long           oc_pending_bits;
+#endif
 };
 
+
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+// These definitions are for Helper Application.
+#define HELPER_APPS_MAXPOWER		0
+#define HELPER_APPS_OVERCURRENT		1
+
+static int oc_recover_flag = 0;
+static LIST_HEAD(hub_oc_pending_list);	/* List of hubs needing overcurrent recovery */
+
+static void hub_call_helper(int id, struct usb_hub *hub);
+void hub_overcurrent(struct usb_hub *hub, unsigned long wIndex);
+#endif
 
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->dev.sem, except that ->state can
@@ -553,6 +570,10 @@ static int hub_hub_status(struct usb_hub *hub,
 	return ret;
 }
 
+#ifdef CONFIG_TOSHIBA_TC90416
+void txss_ehci_port_reset_workaround(struct usb_hub *hub, int port);
+#endif
+
 static int hub_port_disable(struct usb_hub *hub, int port1, int set_state)
 {
 	struct usb_device *hdev = hub->hdev;
@@ -566,6 +587,10 @@ static int hub_port_disable(struct usb_hub *hub, int port1, int set_state)
 	if (ret)
 		dev_err(hub->intfdev, "cannot disable port %d (err = %d)\n",
 			port1, ret);
+
+#ifdef CONFIG_TOSHIBA_TC90416
+	txss_ehci_port_reset_workaround(hub, port1);
+#endif
 
 	return ret;
 }
@@ -831,6 +856,23 @@ static int hub_configure(struct usb_hub *hub,
 		goto fail;
 	}
 
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+	hub->force_power_off = 
+		kmalloc(sizeof(*hub->force_power_off) * hub->descriptor->bNbrPorts, GFP_KERNEL);
+	if (!hub->force_power_off) {
+		message = "can't kmalloc hub power off buffer";
+		ret = -ENOMEM;
+		goto fail;
+	}
+	memset(hub->force_power_off, 0, sizeof(*hub->force_power_off) * hub->descriptor->bNbrPorts);
+
+	/* create sysfs entry. */
+	if ( (ret = usb_create_sysfs_port_status_files (hub->intfdev)) ) {
+		message = "can't create sysfs entry";
+		goto fail;
+	}
+#endif
+
 	usb_fill_int_urb(hub->urb, hdev, pipe, *hub->buffer, maxp, hub_irq,
 		hub, endpoint->bInterval);
 	hub->urb->transfer_dma = hub->buffer_dma;
@@ -864,6 +906,17 @@ static void hub_disconnect(struct usb_interface *intf)
 
 	usb_set_intfdata (intf, NULL);
 	hdev = hub->hdev;
+
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+	if (hub->oc_pending_bits)
+		usb_remove_sysfs_port_status_files (hub->intfdev);
+	list_del_init(&hub->oc_pending_list);
+
+	if (hub->force_power_off) {
+		kfree(hub->force_power_off);
+		hub->force_power_off = NULL;
+	}
+#endif
 
 	if (hdev->speed == USB_SPEED_HIGH)
 		highspeed_hubs--;
@@ -935,6 +988,9 @@ descriptor_error:
 		return -ENOMEM;
 	}
 
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+	INIT_LIST_HEAD(&hub->oc_pending_list);
+#endif
 	INIT_LIST_HEAD(&hub->event_list);
 	hub->intfdev = &intf->dev;
 	hub->hdev = hdev;
@@ -1520,6 +1576,10 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 {
 	int i, status;
 
+#ifdef CONFIG_TOSHIBA_TC90416
+	txss_ehci_port_reset_workaround(hub, port1);
+#endif
+
 	/* Reset the port */
 	for (i = 0; i < PORT_RESET_TRIES; i++) {
 		status = set_port_feature(hub->hdev,
@@ -1838,8 +1898,6 @@ SuspendCleared:
 		hub_port_logical_disconnect(hub, port1);
 
 	clear_bit(port1, hub->busy_bits);
-	if (!hub->hdev->parent && !hub->busy_bits[0])
-		usb_enable_root_hub_irq(hub->hdev->bus);
 
 	return status;
 }
@@ -2391,7 +2449,11 @@ check_highspeed (struct usb_hub *hub, struct usb_device *udev, int port1)
 	kfree(qual);
 }
 
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+static signed
+#else
 static unsigned
+#endif
 hub_power_remaining (struct usb_hub *hub)
 {
 	struct usb_device *hdev = hub->hdev;
@@ -2426,7 +2488,9 @@ hub_power_remaining (struct usb_hub *hub)
 	if (remaining < 0) {
 		dev_warn(hub->intfdev, "%dmA over power budget!\n",
 			- remaining);
+#ifndef CONFIG_USB_HUB_ENHANCEMENT
 		remaining = 0;
+#endif
 	}
 	return remaining;
 }
@@ -2481,6 +2545,9 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 	/* Return now if nothing is connected */
 	if (!(portstatus & USB_PORT_STAT_CONNECTION)) {
 
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+		if (!hub->force_power_off[port1-1])
+#endif
 		/* maybe switch power back on (e.g. root hub was reset) */
 		if ((wHubCharacteristics & HUB_CHAR_LPSM) < 2
 				&& !(portstatus & (1 << USB_PORT_FEAT_POWER)))
@@ -2562,6 +2629,10 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 					schedule_delayed_work (&hub->leds, 0);
 				}
 				status = -ENOTCONN;	/* Don't retry */
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+				// Call hotplug.
+				hub_call_helper(HELPER_APPS_MAXPOWER, hub);
+#endif
 				goto loop_disable;
 			}
 		}
@@ -2603,8 +2674,22 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 			goto loop_disable;
 
 		status = hub_power_remaining(hub);
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+		if (status > 0)
+#else
 		if (status)
+#endif
 			dev_dbg(hub_dev, "%dmA power budget left\n", status);
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+		else if (status < 0) {
+			dev_err(&udev->dev,
+				"doesn't have enough power to connect this port\n");
+			status = -ENOTCONN;	/* Don't retry */
+			// Call hotplug.
+			hub_call_helper(HELPER_APPS_MAXPOWER, hub);
+			goto loop_disable;
+		}
+#endif
 
 		return;
 
@@ -2644,6 +2729,37 @@ static void hub_events(void)
 	 */
 	while (1) {
 
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+		/* At first, we will check whether we should recover the overcurrent conditions. */
+		if (oc_recover_flag && !list_empty(&hub_oc_pending_list)) {
+			int need_popgt_wait = 0;
+
+			/* we do not need any locks to operate it, because it will
+			   be handled only by hub_events(). */
+			while (!list_empty(&hub_oc_pending_list)) {
+				tmp = hub_oc_pending_list.next;
+				list_del_init(tmp);
+
+				hub = list_entry(tmp, struct usb_hub, oc_pending_list);
+
+				usb_remove_sysfs_overcurrent_files(&hub->hdev->dev);
+
+				for (i = 0; i < hub->descriptor->bNbrPorts; i++) {
+					if (test_bit(0, &hub->oc_pending_bits) || 
+					    (test_and_clear_bit(i + 1, &hub->oc_pending_bits))) {
+						hub->force_power_off[i] = 0;
+						set_port_feature(hub->hdev, i + 1, USB_PORT_FEAT_POWER);
+						need_popgt_wait = 1;
+					}
+				}
+				clear_bit(0, &hub->oc_pending_bits);
+			}
+			oc_recover_flag = 0;
+
+			if (need_popgt_wait)
+				msleep(max((unsigned)hub->descriptor->bPwrOn2PwrGood * 2, (unsigned) 100));
+		}
+#endif
 		/* Grab the first entry at the beginning of the list */
 		spin_lock_irq(&hub_event_lock);
 		if (list_empty(&hub_event_list)) {
@@ -2787,7 +2903,23 @@ static void hub_events(void)
 					i);
 				clear_port_feature(hdev, i,
 					USB_PORT_FEAT_C_OVER_CURRENT);
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+				// This feature is only for root hub.
+				if (!hdev->parent)
+					// Call hotplug.
+					// And, should turn the port power on again after
+					// getting the command from the application.
+					hub_overcurrent(hub, i);
+				else if ( !hdev->parent->parent )
+					// Call hotplug.
+					// And, should turn the port power on again after
+					// getting the command from the application.
+					hub_overcurrent(hub, i);
+				else
+					hub_power_on(hub);
+#else
 				hub_power_on(hub);
+#endif
 			}
 
 			if (portchange & USB_PORT_STAT_C_RESET) {
@@ -2822,16 +2954,27 @@ static void hub_events(void)
 				dev_dbg (hub_dev, "overcurrent change\n");
 				msleep(500);	/* Cool down */
 				clear_hub_feature(hdev, C_HUB_OVER_CURRENT);
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+				// This feature is only for root hub.
+				if (!hdev->parent) 
+					// Call hotplug.
+					// And, should turn the port power on again after
+					// getting the command from the application.
+					hub_overcurrent(hub, 0);
+				else if ( !hdev->parent->parent )
+					// Call hotplug.
+					// And, should turn the port power on again after
+					// getting the command from the application.
+					hub_overcurrent(hub, 0);
+				else
+					hub_power_on(hub);
+#else
                         	hub_power_on(hub);
+#endif
 			}
 		}
 
 		hub->activating = 0;
-
-		/* If this is a root hub, tell the HCD it's okay to
-		 * re-enable port-change interrupts now. */
-		if (!hdev->parent && !hub->busy_bits[0])
-			usb_enable_root_hub_irq(hdev->bus);
 
 loop_autopm:
 		/* Allow autosuspend if we're not going to run again */
@@ -2846,11 +2989,23 @@ loop:
 
 static int hub_thread(void *__unused)
 {
+#ifdef CONFIG_USB_RTSCHED
+	struct sched_param param = {
+		.sched_priority = CONFIG_USB_RTSCHED_PRIO + CONFIG_USB_RTSCHED_PRIO_SUB
+	};
+	sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
 	do {
 		hub_events();
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+		wait_event_interruptible(khubd_wait, 
+			!list_empty(&hub_event_list) || kthread_should_stop() ||
+			 (oc_recover_flag && !list_empty(&hub_oc_pending_list)));
+#else
 		wait_event_interruptible(khubd_wait,
 				!list_empty(&hub_event_list) ||
 				kthread_should_stop());
+#endif
 		try_to_freeze();
 	} while (!kthread_should_stop() || !list_empty(&hub_event_list));
 
@@ -3010,8 +3165,6 @@ int usb_reset_device(struct usb_device *udev)
 			break;
 	}
 	clear_bit(port1, parent_hub->busy_bits);
-	if (!parent_hdev->parent && !parent_hub->busy_bits[0])
-		usb_enable_root_hub_irq(parent_hdev->bus);
 
 	if (ret < 0)
 		goto re_enumerate;
@@ -3150,3 +3303,277 @@ int usb_reset_composite_device(struct usb_device *udev,
 	return ret;
 }
 EXPORT_SYMBOL(usb_reset_composite_device);
+
+#ifdef CONFIG_USB_HUB_ENHANCEMENT
+// Launch Helper Application (/sbin/hotplug).
+#define BUFFER_SIZE	1024	/* buffer for the hotplug env */
+#define NUM_ENVP	5	/* number of env pointers */
+static void
+hub_call_helper(
+	int id,
+	struct usb_hub *hub)
+{
+#ifdef	CONFIG_HOTPLUG
+	struct device *dev = &hub->hdev->dev;
+	char *argv [3], **envp;
+	char *buffer = NULL;
+	char *kobj_path = NULL;
+	char *scratch;
+	int  value;
+	int i = 0;
+
+	if (!uevent_helper [0])
+		return;
+	if (in_interrupt ()) {
+		printk("Unable to call hotplug because of In_interrupt.\n");
+		return;
+	}
+	if (!current->fs->root) {
+		return;
+	}
+	if (!(envp = (char **) kmalloc (NUM_ENVP * sizeof (char *), GFP_KERNEL))) {
+		return;
+	}
+	memset (envp, 0x00, NUM_ENVP * sizeof (char *));
+
+	buffer = kmalloc(BUFFER_SIZE, GFP_KERNEL);
+	if (!buffer)
+		goto exit;
+
+	/* only one standardized param to hotplug command: type */
+	argv [0] = uevent_helper;
+	if (id == HELPER_APPS_MAXPOWER) {
+		argv [1] = "hub_pwr_err";
+	}
+	else {
+		argv [1] = "hub_oc_err";
+	}
+	argv [2] = NULL;
+
+	/* minimal command environment */
+	envp [i++] = "HOME=/";
+	envp [i++] = "PATH=/sbin:/bin:/usr/sbin:/usr/bin";
+
+	scratch = buffer;
+
+	envp [i++] = scratch;
+	scratch += sprintf(scratch, "ACTION=%s", argv[1]) + 1;
+
+	kobj_path = kobject_get_path(&dev->kobj, GFP_KERNEL);
+	if (!kobj_path)
+		goto exit;
+
+	envp [i++] = scratch;
+	scratch += sprintf (scratch, "DEVPATH=%s", kobj_path) + 1;
+
+	/* NOTE: user mode daemons can call the agents too */
+	value = call_usermodehelper (argv [0], argv, envp, 0);
+	if (value != 0)
+		warn ("Unable to call hotplug. returned 0x%x", value);
+
+exit:
+	kfree(kobj_path);
+	kfree(buffer);
+	kfree(envp);
+	return;
+#endif
+}
+
+// Send the event to recover from over-current condition.
+void
+hub_overcurrent_recover(
+	void)
+{
+	oc_recover_flag = 1;
+	wake_up(&khubd_wait);
+}
+
+// This function is called when OverCurrent is detected on root hub.
+void
+hub_overcurrent(
+	struct usb_hub *hub,
+	unsigned long wIndex)
+{
+	struct usb_hub *this;
+	int need_add_entry = 1;
+
+	list_for_each_entry(this, &hub_oc_pending_list, oc_pending_list) {
+		if (this == hub) {
+			need_add_entry = 0;
+			break;
+		}
+	}
+	/* we need to create only one thread per hub. */
+	if (need_add_entry) {
+		/* we do not need any locks to operate it, because it will
+		   be handled by only hub_events(). */
+		list_add_tail(&hub->oc_pending_list, &hub_oc_pending_list);
+
+		/* create sysfs entry. */
+		usb_create_sysfs_overcurrent_files(&hub->hdev->dev);
+
+		if ( wIndex ) {
+			hub->force_power_off[wIndex-1] = 1;
+			hub_port_logical_disconnect(hub, wIndex);
+			clear_port_feature(hub->hdev, wIndex, USB_PORT_FEAT_POWER);
+		}
+	}
+
+	if (!test_and_set_bit(wIndex, &hub->oc_pending_bits)) {
+		// call helper application.
+		hub_call_helper(HELPER_APPS_OVERCURRENT, hub);
+	}
+}
+
+void
+set_hub_port_power_status(struct usb_device *udev, unsigned long ppc_on, unsigned long ppc_off)
+{
+	struct usb_hub	*hub;
+	int i;
+
+	hub = (struct usb_hub *)
+		usb_get_intfdata (udev->actconfig->interface[0]);
+
+	/* turn on/off the port power */
+	for (i = 0; i < hub->descriptor->bNbrPorts; i++) {
+		/* turn on the port power */
+		if ((ppc_on >> i) & 1) {
+			hub->force_power_off[i] = 0;
+			clear_bit(i + 1, &hub->oc_pending_bits);
+			set_port_feature(hub->hdev, i + 1, USB_PORT_FEAT_POWER);
+		}
+		/* turn off the port power */
+		else if ((ppc_off >> i) & 1) {
+			hub->force_power_off[i] = 1;
+			hub_port_logical_disconnect(hub, i + 1);
+			clear_port_feature(hub->hdev, i + 1, USB_PORT_FEAT_POWER);
+		}
+	}
+
+	/* wait for power to be stable */
+	if (ppc_on)
+		msleep(max((unsigned)hub->descriptor->bPwrOn2PwrGood * 2, (unsigned) 100));
+}
+
+ssize_t
+get_hub_port_status(struct usb_device *udev, char *buf)
+{
+	struct usb_hub	*hub;
+	ssize_t len = 0;
+	int i;
+
+	hub = (struct usb_hub *)
+		usb_get_intfdata (udev->actconfig->interface[0]);
+
+	for (i = 0; i < hub->descriptor->bNbrPorts; i++) {
+		u16 portstatus;
+		u16 portchange;
+		int ret;
+
+		ret = hub_port_status(hub, i+1,
+				      &portstatus, &portchange);
+		if (ret < 0)
+			continue;
+
+		len += sprintf(buf+len, "%3d:%04x %s\n", 
+			       i+1, 
+			       portstatus, 
+			       test_bit(i + 1, &hub->oc_pending_bits) ? "OVERCURRENT" : "");
+	}
+
+	return len;
+}
+
+#ifdef CONFIG_USB_TEST_ENHANCEMENT
+void
+set_hub_port_test_status(struct usb_device *udev, unsigned int test_mode)
+{
+	struct usb_hub	*hub;
+	unsigned int port,wValue,wIndex;
+
+	port   = (test_mode & 0xf);
+	wValue = (test_mode >> 16);
+	wIndex = (test_mode & 0xffff);
+
+	hub = (struct usb_hub *)
+		usb_get_intfdata (udev->actconfig->interface[0]);
+
+	if ( ( port > hub->descriptor->bNbrPorts ) || !port ) {
+		printk(KERN_ERR "port %d is not support.\n",port);
+		return;
+	}
+
+	set_port_feature(hub->hdev, wIndex, wValue);
+
+}
+#endif /* CONFIG_USB_TEST_ENHANCEMENT */
+#endif
+
+/*
+ * workaround for txss echi hcd
+ */
+
+#ifdef CONFIG_TOSHIBA_TC90416
+
+#undef DEBUG
+#ifdef DEBUG
+#define DPRINTK(fmt, args...) printk(fmt, ##args)
+#else
+#define DPRINTK(fmt, args...)
+#endif
+
+static int txss_hub_port_disable(struct usb_hub *hub, int port1)
+{
+	int status;
+
+	status = clear_port_feature(hub->hdev, port1, USB_PORT_FEAT_ENABLE);
+	if (status) {
+		DPRINTK("txss_workaround: can't disable port %d, status %d\n",
+			port1, status);
+	} else {
+		/* device has up to 10 msec to fully disable */
+		DPRINTK("txss_workaround: disable port \n");
+		msleep(10);
+	}
+
+	return status;
+}
+
+static int is_txss_ehci(struct usb_hub *hub)
+{
+	if (hub->hdev != hub->hdev->bus->root_hub) {
+		/* not roothub */
+		return -1;
+	}
+
+	if (strcmp(hub->hdev->bus->controller->driver->name, "tc90416-ehci")) {
+		/* not ehci */
+		return -1;
+	}
+
+	return 0;
+}
+
+void txss_ehci_port_reset_workaround(struct usb_hub *hub, int port1)
+{
+	u16 portstatus;
+	u16 portchange;
+	int i;
+
+	DPRINTK("txss_workaround: ehci_port_reset_workaround \n");
+
+	if (is_txss_ehci(hub)) {
+		/* no need of this workaround */
+		return;
+	}
+
+	for (i = 0; i < 100; i++) {
+		hub_port_status(hub, port1, &portstatus, &portchange);
+		if (!(portstatus & USB_PORT_STAT_ENABLE)) {
+			break;
+		}
+		txss_hub_port_disable(hub, port1);
+	}
+}
+
+#endif	/* CONFIG_TOSHIBA_TC90416 */

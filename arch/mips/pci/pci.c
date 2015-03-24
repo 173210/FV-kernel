@@ -12,6 +12,9 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/pci.h>
+#ifdef CONFIG_TOSHIBA_TC90411
+#include <asm/bootinfo.h>
+#endif
 
 /*
  * Indicate whether we respect the PCI setup left by the firmware.
@@ -79,6 +82,14 @@ void __init register_pci_controller(struct pci_controller *hose)
 {
 	*hose_tail = hose;
 	hose_tail = &hose->next;
+
+	/*
+	 * Do not panic here but later - this might hapen before console init.
+	 */
+	if (!hose->io_map_base) {
+		printk(KERN_WARNING
+		       "registering PCI controller with io_map_base unset\n");
+	}
 }
 
 /* Most MIPS systems have straight-forward swizzling needs.  */
@@ -169,7 +180,12 @@ static int pcibios_enable_resources(struct pci_dev *dev, int mask)
 			continue;
 
 		r = &dev->resource[idx];
+#ifdef CONFIG_TOSHIBA_TC90411
+		if ( (!r->start && r->end) &&
+		     (mips_machtype != MACH_TC90411_JPTVZ4) ) {
+#else
 		if (!r->start && r->end) {
+#endif
 			printk(KERN_ERR "PCI: Device %s not available because of resource collisions\n", pci_name(dev));
 			return -EINVAL;
 		}
@@ -223,7 +239,7 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	return pcibios_plat_dev_init(dev);
 }
 
-static void __init pcibios_fixup_device_resources(struct pci_dev *dev,
+static void __devinit pcibios_fixup_device_resources(struct pci_dev *dev,
 	struct pci_bus *bus)
 {
 	/* Update device resources.  */
@@ -314,7 +330,9 @@ EXPORT_SYMBOL(PCIBIOS_MIN_IO);
 EXPORT_SYMBOL(PCIBIOS_MIN_MEM);
 #endif
 
+#ifndef CONFIG_TX_BOARDS
 char *pcibios_setup(char *str)
 {
 	return str;
 }
+#endif

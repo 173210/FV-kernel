@@ -61,6 +61,8 @@ struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned = {
 	}
 };
 
+EXPORT_SYMBOL(irq_desc);
+
 /*
  * What should we do if we get a hw irq event on an illegal vector?
  * Each architecture has to answer this themself.
@@ -131,7 +133,13 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 {
 	irqreturn_t ret, retval = IRQ_NONE;
 	unsigned int status = 0;
+	struct pt_regs *regs = get_irq_regs();
 
+	MARK(kernel_irq_entry, "%u %u", irq, (regs)?(!user_mode(regs)):(1));
+	MARK(stack_arch_irq_dump_kernel_stack, MARK_NOARGS, regs);
+	MARK(stack_arch_irq_dump_process32_stack, MARK_NOARGS, regs);
+	MARK(stack_arch_irq_dump_process64_stack, MARK_NOARGS, regs);
+	netcpurate_irq_period_start(irq);
 	handle_dynamic_tick(action);
 
 	if (!(action->flags & IRQF_DISABLED))
@@ -149,6 +157,8 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 		add_interrupt_randomness(irq);
 	local_irq_disable();
 
+	netcpurate_irq_period_end(irq);
+	MARK(kernel_irq_exit, MARK_NOARGS);
 	return retval;
 }
 

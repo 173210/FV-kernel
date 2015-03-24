@@ -123,6 +123,10 @@ void writeback_set_ratelimit(void);
 /* pdflush.c */
 extern int nr_pdflush_threads;	/* Global so it can be exported to sysctl
 				   read-only. */
+#ifdef CONFIG_PDFLUSH_RTSCHED
+extern int prio_pdflush_thread;	/* Global so it can be exported to sysctl
+				   read-write. */
+#endif
 
 
 #endif		/* WRITEBACK_H */

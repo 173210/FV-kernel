@@ -29,6 +29,7 @@
 #include <linux/stat.h>
 #include <linux/fcntl.h>
 #include <linux/smp_lock.h>
+#include <linux/string.h>
 #include <linux/init.h>
 #include <linux/pagemap.h>
 #include <linux/highmem.h>
@@ -50,6 +51,7 @@
 #include <linux/tsacct_kern.h>
 #include <linux/cn_proc.h>
 #include <linux/audit.h>
+#include <linux/ltt-facilities.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1192,6 +1194,18 @@ int do_execve(char * filename,
 
 	retval = search_binary_handler(bprm,regs);
 	if (retval >= 0) {
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+		{
+			int i;
+			for (i = 0; i < LTT_FAC_PER_PROCESS; i++) {
+				if (current->ltt_facilities[i] == 0)
+					break;
+				WARN_ON(ltt_facility_unregister(
+						current->ltt_facilities[i]));
+			}
+		}
+#endif //CONFIG_LTT_USERSPACE_GENERIC
+		MARK(fs_exec, "%s", filename);
 		free_arg_pages(bprm);
 
 		/* execve success */
@@ -1342,6 +1356,14 @@ static int format_corename(char *corename, const char *pattern, long signr)
 					goto out;
 				out_ptr += rc;
 				break;
+			/* core limit size */
+			case 'c':
+				rc = snprintf(out_ptr, out_end - out_ptr,
+					      "%lu", current->signal->rlim[RLIMIT_CORE].rlim_cur);
+				if (rc > out_end - out_ptr)
+					goto out;
+				out_ptr += rc;
+				break;
 			default:
 				break;
 			}
@@ -1475,6 +1497,9 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	int fsuid = current->fsuid;
 	int flag = 0;
 	int ispipe = 0;
+	char **helper_argv = NULL;
+	int helper_argc = 0;
+	char *delimit;
 
 	binfmt = current->binfmt;
 	if (!binfmt || !binfmt->core_dump)
@@ -1517,8 +1542,13 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 	ispipe = format_corename(corename, core_pattern, signr);
 	unlock_kernel();
  	if (ispipe) {
+		helper_argv = argv_split(GFP_KERNEL, corename+1, &helper_argc);
+		/* Terminate the string before the first option */
+		delimit = strchr(corename, ' ');
+		if (delimit)
+			*delimit = '\0';
 		/* SIGPIPE can happen, but it's just never processed */
- 		if(call_usermodehelper_pipe(corename+1, NULL, NULL, &file)) {
+		if(call_usermodehelper_pipe(corename+1, helper_argv, NULL, &file)) {
  			printk(KERN_INFO "Core dump to %s pipe failed\n",
 			       corename);
  			goto fail_unlock;
@@ -1553,6 +1583,9 @@ int do_coredump(long signr, int exit_code, struct pt_regs * regs)
 close_fail:
 	filp_close(file, NULL);
 fail_unlock:
+	if (helper_argv)
+		argv_free(helper_argv);
+
 	current->fsuid = fsuid;
 	complete_all(&mm->core_done);
 fail:

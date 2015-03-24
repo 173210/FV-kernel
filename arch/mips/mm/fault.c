@@ -42,7 +42,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 	siginfo_t info;
 
 #if 0
-	printk("Cpu%d[%s:%d:%0*lx:%ld:%0*lx]\n", smp_processor_id(),
+	printk("Cpu%d[%s:%d:%0*lx:%ld:%0*lx]\n", raw_smp_processor_id(),
 	       current->comm, current->pid, field, address, write,
 	       field, regs->cp0_epc);
 #endif
@@ -103,16 +103,22 @@ survive:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
+        MARK(kernel_arch_trap_entry, "%d %ld", CAUSE_EXCCODE(regs->cp0_cause),
+		instruction_pointer(regs));
 	switch (handle_mm_fault(mm, vma, address, write)) {
 	case VM_FAULT_MINOR:
+		MARK(kernel_arch_trap_exit, MARK_NOARGS);
 		tsk->min_flt++;
 		break;
 	case VM_FAULT_MAJOR:
+		MARK(kernel_arch_trap_exit, MARK_NOARGS);
 		tsk->maj_flt++;
 		break;
 	case VM_FAULT_SIGBUS:
+		MARK(kernel_arch_trap_exit, MARK_NOARGS);
 		goto do_sigbus;
 	case VM_FAULT_OOM:
+		MARK(kernel_arch_trap_exit, MARK_NOARGS);
 		goto out_of_memory;
 	default:
 		BUG();
@@ -165,7 +171,7 @@ no_context:
 
 	printk(KERN_ALERT "CPU %d Unable to handle kernel paging request at "
 	       "virtual address %0*lx, epc == %0*lx, ra == %0*lx\n",
-	       smp_processor_id(), field, address, field, regs->cp0_epc,
+	       raw_smp_processor_id(), field, address, field, regs->cp0_epc,
 	       field,  regs->regs[31]);
 	die("Oops", regs);
 
@@ -228,7 +234,7 @@ vmalloc_fault:
 		pmd_t *pmd, *pmd_k;
 		pte_t *pte_k;
 
-		pgd = (pgd_t *) pgd_current[smp_processor_id()] + offset;
+		pgd = (pgd_t *) pgd_current[raw_smp_processor_id()] + offset;
 		pgd_k = init_mm.pgd + offset;
 
 		if (!pgd_present(*pgd_k))

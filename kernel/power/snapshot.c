@@ -650,6 +650,7 @@ static inline void *saveable_highmem_page(unsigned long pfn) { return NULL; }
 static inline unsigned int count_highmem_pages(void) { return 0; }
 #endif /* CONFIG_HIGHMEM */
 
+int arch_pfn_is_nosave(unsigned long pfn);
 /**
  *	pfn_is_nosave - check if given pfn is in the 'nosave' section
  */
@@ -658,6 +659,8 @@ static inline int pfn_is_nosave(unsigned long pfn)
 {
 	unsigned long nosave_begin_pfn = __pa(&__nosave_begin) >> PAGE_SHIFT;
 	unsigned long nosave_end_pfn = PAGE_ALIGN(__pa(&__nosave_end)) >> PAGE_SHIFT;
+	if (arch_pfn_is_nosave(pfn))
+		return 1;
 	return (pfn >= nosave_begin_pfn) && (pfn < nosave_end_pfn);
 }
 
@@ -713,6 +716,54 @@ unsigned int count_data_pages(void)
 	}
 	return n;
 }
+#ifdef CONFIG_SWSUSP_USE_RESERVEMEM_PAGE
+int pfn_is_reservemem(unsigned long pfn);
+static unsigned int count_reservemem_pages(void)
+{
+	struct zone *zone;
+	unsigned long pfn, max_zone_pfn;
+	unsigned int n = 0;
+
+	for_each_zone(zone) {
+		max_zone_pfn = zone->zone_start_pfn + zone->spanned_pages;
+		for (pfn = zone->zone_start_pfn; pfn < max_zone_pfn; pfn++)
+			if (pfn_is_reservemem(pfn))
+				n++;
+	}
+	return n;
+}
+static unsigned int
+swsusp_alloc_reservemem_pages(struct memory_bitmap *copy_bm,
+			      unsigned int nr_pages)
+{
+	struct zone *zone;
+	unsigned long pfn, max_zone_pfn;
+	unsigned int n = 0;
+
+	if (nr_pages == 0)
+		return 0;
+	for_each_zone(zone) {
+		max_zone_pfn = zone->zone_start_pfn + zone->spanned_pages;
+		for (pfn = zone->zone_start_pfn; pfn < max_zone_pfn; pfn++) {
+			if (pfn_is_reservemem(pfn)) {
+				memory_bm_set_bit(copy_bm, pfn);
+				n++;
+				if (n >= nr_pages)
+					goto end;
+			}
+		}
+	}
+end:
+	if (n)
+		printk("swsusp: use %d reservemem pages\n", n);
+	return n;
+}
+#else
+static unsigned int count_reservemem_pages(void) { return 0; }
+static unsigned int
+swsusp_alloc_reservemem_pages(struct memory_bitmap *copy_bm,
+			      unsigned int nr_pages) { return 0; }
+#endif /* CONFIG_SWSUSP_USE_ARCH_NOSAVE_PAGE */
 
 /* This is needed, because copy_page and memcpy are not usable for copying
  * task structs.
@@ -871,6 +922,7 @@ static int enough_free_mem(unsigned int nr_pages, unsigned int nr_highmem)
 		if (!is_highmem(zone))
 			free += zone->free_pages;
 	}
+	free += count_reservemem_pages();
 
 	nr_pages += count_pages_for_highmem(nr_highmem);
 	pr_debug("swsusp: Normal pages needed: %u + %u + %u, available pages: %u\n",
@@ -954,6 +1006,7 @@ swsusp_alloc(struct memory_bitmap *orig_bm, struct memory_bitmap *copy_bm,
 
 		nr_pages += alloc_highmem_image_pages(copy_bm, nr_highmem);
 	}
+	nr_pages -= swsusp_alloc_reservemem_pages(copy_bm, nr_pages);
 	while (nr_pages-- > 0) {
 		struct page *page = alloc_image_page(GFP_ATOMIC | __GFP_COLD);
 

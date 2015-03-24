@@ -475,6 +475,7 @@ smb_put_super(struct super_block *sb)
 {
 	struct smb_sb_info *server = SMB_SB(sb);
 
+	smbiod_lock_loop();
 	smb_lock_server(server);
 	server->state = CONN_INVALID;
 	smbiod_unregister_server(server);
@@ -490,6 +491,7 @@ smb_put_super(struct super_block *sb)
 	smb_unlock_server(server);
 	put_pid(server->conn_pid);
 	kfree(server);
+	smbiod_unlock_loop();
 }
 
 static int smb_fill_super(struct super_block *sb, void *raw_data, int silent)

@@ -24,6 +24,7 @@ struct mtd_oob_buf {
 #define MTD_NORFLASH		3
 #define MTD_NANDFLASH		4
 #define MTD_DATAFLASH		6
+#define MTD_UBIVOLUME		7
 
 #define MTD_WRITEABLE		0x400	/* Device is writeable */
 #define MTD_BIT_WRITEABLE	0x800	/* Single bits can be flipped */
@@ -79,6 +80,28 @@ struct otp_info {
 	uint32_t locked;
 };
 
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+struct nand_page_read_count {
+	uint32_t pageoffset;
+	uint32_t pagenum;
+	short __user *ptr_table;
+};
+#endif
+
+struct nand_errstat_cmd {
+	int maf_id;
+	int dev_id;
+	unsigned int command;
+	int column;
+	int page_addr;
+};
+
+struct nand_errstat {
+	int state;
+	size_t count;
+	struct nand_errstat_cmd *addr;
+};
+
 #define MEMGETINFO		_IOR('M', 1, struct mtd_info_user)
 #define MEMERASE		_IOW('M', 2, struct erase_info_user)
 #define MEMWRITEOOB		_IOWR('M', 3, struct mtd_oob_buf)
@@ -98,6 +121,17 @@ struct otp_info {
 #define ECCGETLAYOUT		_IOR('M', 17, struct nand_ecclayout)
 #define ECCGETSTATS		_IOR('M', 18, struct mtd_ecc_stats)
 #define MTDFILEMODE		_IO('M', 19)
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+#define MEMGETREADCOUNT 	_IOR('M', 30, struct nand_page_read_count)
+#endif
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+#define MEMSETFORCEERASE	_IOW('M', 31, int)
+#endif
+#ifdef CONFIG_MTD_CHAR_MEMISLOCK
+#define MEMISLOCK		_IOW('M', 32, struct erase_info_user)
+#endif
+#define MEMGETERRSTAT		_IOW('M', 41, struct nand_errstat)
+#define MEMSETERRSTAT		_IOW('M', 42, struct nand_errstat)
 
 /*
  * Obsolete legacy interface. Keep it in order not to break userspace

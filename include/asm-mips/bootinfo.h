@@ -213,6 +213,51 @@
 #define MACH_GROUP_NEC_EMMA2RH 25	/* NEC EMMA2RH (was 23)		*/
 #define  MACH_NEC_MARKEINS	0	/* NEC EMMA2RH Mark-eins	*/
 
+/*
+ * Valid machtype for group TX
+ */
+#define MACH_GROUP_TX          23	/* TX-RISC			*/
+#define  MACH_TX_RBTX4927	3
+#define  MACH_TX_RBTX4938	6
+#define  MACH_TX_RBTX4939	9
+#define  MACH_TX_OPBD493X	10
+
+/*
+ * Valid machtype for group TC90411
+ */
+#define MACH_GROUP_TC90411       24	/* Toshiba TC90411		*/
+
+/*
+ * Valid machtype for group TC90412
+ */
+#define MACH_GROUP_TC90412      28
+
+/*
+ * Valid machtype for group TC90416
+ *  Target chip: TC90416 and TC90417
+ */
+#define MACH_GROUP_TC90416     30
+#define  MACH_TC90416_PROTO1	0
+#define  MACH_TC90417_PROTO1	1
+#define  MACH_TC90417_PROTOJP	2
+#define  MACH_TC90417_PROTOEU	3
+#define  MACH_TC90417_EUTV1	4
+#define  MACH_TC90417_CELLPN1	5
+#define  MACH_TC90417_CELLTV1	6
+#define  MACH_TC90417_JPTVH1	7
+#define  MACH_TC90417_STBF1	8
+#define  MACH_TC90417_STBR1	9
+#define  MACH_TC90417_STB2     10
+#define  MACH_TC90417_STBF2    11
+#define  MACH_TC90417_STBR2    12
+#define  MACH_TC90417_JPTVH2   13
+#define  MACH_TC90417_JPTVZF1  14
+#define  MACH_TC90417_JPTVZR1  15
+#define  MACH_TC90417_JPTVAO1  16
+#define  MACH_TC90417_CELLPN2  17
+#define  MACH_TC90417_CELLTV2  18
+#define  MACH_TC90417_CELLTV3  19
+
 #define CL_SIZE			COMMAND_LINE_SIZE
 
 const char *get_system_type(void);

@@ -8,6 +8,7 @@
 #include <linux/writeback.h>
 #include <linux/sysctl.h>
 #include <linux/gfp.h>
+#include <linux/buffer_head.h>
 
 /* A global variable is a bit ugly, but it keeps the code simple */
 int sysctl_drop_caches;
@@ -45,6 +46,26 @@ restart:
 	spin_unlock(&sb_lock);
 }
 
+static void drop_bdevcache(void)
+{
+	struct super_block *sb;
+
+	spin_lock(&sb_lock);
+restart:
+	list_for_each_entry(sb, &super_blocks, s_list) {
+		sb->s_count++;
+		spin_unlock(&sb_lock);
+		down_read(&sb->s_umount);
+		if (sb->s_root && (sb->s_flags & MS_RDONLY) && sb->s_bdev)
+			invalidate_bdev(sb->s_bdev, 0);
+		up_read(&sb->s_umount);
+		spin_lock(&sb_lock);
+		if (__put_super_and_need_restart(sb))
+			goto restart;
+	}
+	spin_unlock(&sb_lock);
+}
+
 void drop_slab(void)
 {
 	int nr_objects;
@@ -63,6 +84,8 @@ int drop_caches_sysctl_handler(ctl_table *table, int write,
 			drop_pagecache();
 		if (sysctl_drop_caches & 2)
 			drop_slab();
+		if ((sysctl_drop_caches & 4) && !(sysctl_drop_caches & 1))
+			drop_bdevcache();
 	}
 	return 0;
 }

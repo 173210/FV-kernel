@@ -23,6 +23,16 @@ config MTD_NAND_VERIFY_WRITE
 	  device thinks the write was successful, a bit could have been
 	  flipped accidentally due to device wear or something else.
 
+config MTD_NAND_VERIFY_WRITE_SUBPAGE
+	bool "Verify NAND page and subpage writes"
+	depends on MTD_NAND
+	default n
+	help
+	  This adds an extra check when data is written to the flash.
+	  MTD_NAND_VERIFY_WRITE can verify a whole page. This can verify
+	  a whole page and a part of the page (subpage) too. If selected
+	  both setting, this is invalid.
+
 config MTD_NAND_ECC_SMC
 	bool "NAND ECC Smart Media byte order"
 	depends on MTD_NAND
@@ -77,6 +87,20 @@ config MTD_NAND_TS7250
 
 config MTD_NAND_IDS
 	tristate
+
+config MTD_NAND_TXX9NDFMC
+	tristate "NAND Flash device on TXX9 NDFMC"
+	depends on MTD_NAND && TX_BOARDS
+
+config MTD_NAND_TXX9NDFMC_OOB_HWLAYOUT
+	bool "set OOB ECC layout for Hardware"
+	depends on MTD_NAND_TXX9NDFMC
+	default n
+
+config MTD_NAND_TXX9NDFMC_RW_NOSUBPAGE
+	bool "Not support read/write in subpage (256) unit"
+	depends on MTD_NAND_TXX9NDFMC
+	default n
 
 config MTD_NAND_AU1550
 	tristate "Au1550/1200 NAND support"

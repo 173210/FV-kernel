@@ -123,6 +123,7 @@
  * Maximum user name length
  */
 #define CIFS_UNLEN (20)
+#define CIFS_SESS_KEY_SIZE (24)
 
 /*
  * Flags on SMB open

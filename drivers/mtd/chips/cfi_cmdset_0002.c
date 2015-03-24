@@ -52,6 +52,15 @@
 #define SST49LF008A		0x005a
 #define AT49BV6416		0x00d6
 
+#ifdef CONFIG_MTD_CFI_AMDSTD_ERASE_SUSPEND_CHECK
+#ifdef CONFIG_MTD_CFI_AMDSTD_ERASE_SUSPEND_SKIP_RANGE
+#define ERASE_SUSPEND_SKIP_RANGE CONFIG_MTD_CFI_AMDSTD_ERASE_SUSPEND_SKIP_RANGE
+#else
+#define ERASE_SUSPEND_SKIP_RANGE 0x20000  /* 128KB */
+#endif
+#define ERASE_SUSPEND_SKIP_MASK ~(ERASE_SUSPEND_SKIP_RANGE-1)
+#endif
+
 static int cfi_amdstd_read (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
 static int cfi_amdstd_write_words(struct mtd_info *, loff_t, size_t, size_t *, const u_char *);
 static int cfi_amdstd_write_buffers(struct mtd_info *, loff_t, size_t, size_t *, const u_char *);
@@ -216,6 +225,31 @@ static void fixup_use_atmel_lock(struct mtd_info *mtd, void *param)
 	mtd->flags |= MTD_STUPID_LOCK;
 }
 
+#ifdef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_SUPPORT
+#ifndef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+static int cfi_amdstd_advanced_lock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len);
+static int cfi_amdstd_advanced_unlock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len);
+#endif
+static int cfi_amdstd_advanced_islock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len);
+
+static void fixup_use_sectlock(struct mtd_info *mtd, void *param)
+{
+	struct map_info *map = mtd->priv;
+	struct cfi_private *cfi = map->fldrv_priv;
+	struct cfi_pri_amdstd *extp = cfi->cmdset_priv;
+
+	if (((cfi->id & 0xff) == 0x7e) && (extp->BlkProtUnprot == 0x8)) {
+		printk(KERN_NOTICE "cfi_cmdset_0002: using the advanced sector lock/unlock method\n");
+		/* Setup for the chips with the sector-lock method */
+#ifndef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+		mtd->lock   = cfi_amdstd_advanced_lock_varsize;
+		mtd->unlock = cfi_amdstd_advanced_unlock_varsize;
+#endif
+		mtd->islock = cfi_amdstd_advanced_islock_varsize;
+	}
+}
+#endif
+
 static struct cfi_fixup cfi_fixup_table[] = {
 #ifdef AMD_BOOTLOC_BUG
 	{ CFI_MFR_AMD, CFI_ID_ANY, fixup_amd_bootblock, NULL },
@@ -226,6 +260,11 @@ static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_AMD, 0x0056, fixup_use_secsi, NULL, },
 	{ CFI_MFR_AMD, 0x005C, fixup_use_secsi, NULL, },
 	{ CFI_MFR_AMD, 0x005F, fixup_use_secsi, NULL, },
+#ifdef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_SUPPORT
+	{ CFI_MFR_AMD, CFI_ID_ANY, fixup_use_sectlock, NULL, },
+	{ CFI_MFR_SMS, CFI_ID_ANY, fixup_use_sectlock, NULL, },
+	{ CFI_MFR_ST, CFI_ID_ANY, fixup_use_sectlock, NULL, },
+#endif
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL, },
 #endif
@@ -292,6 +331,7 @@ struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 			return NULL;
 		}
 
+#ifndef MTD_CFI_AMDSTD_VERSION_NOCHECK
 		if (extp->MajorVersion != '1' ||
 		    (extp->MinorVersion < '0' || extp->MinorVersion > '4')) {
 			printk(KERN_ERR "  Unknown Amd/Fujitsu Extended Query "
@@ -301,6 +341,7 @@ struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 			kfree(mtd);
 			return NULL;
 		}
+#endif
 
 		/* Install our own private info structure */
 		cfi->cmdset_priv = extp;
@@ -531,6 +572,12 @@ static int get_chip(struct map_info *map, struct flchip *chip, unsigned long adr
 		/* We could check to see if we're trying to access the sector
 		 * that is currently being erased. However, no user will try
 		 * anything like that so we just wait for the timeout. */
+#ifdef CONFIG_MTD_CFI_AMDSTD_ERASE_SUSPEND_CHECK
+		if ((chip->in_progress_block_addr & ERASE_SUSPEND_SKIP_MASK) == (adr & ERASE_SUSPEND_SKIP_MASK)){
+			printk(KERN_DEBUG "Skip erase suspend, erase addr 0x%lx, read addr 0x%lx\n",chip->in_progress_block_addr,adr);
+			goto sleep;
+		}
+#endif
 
 		/* Erase suspend */
 		/* It's harmless to issue the Erase-Suspend and Erase-Resume
@@ -1722,6 +1769,180 @@ static int cfi_atmel_unlock(struct mtd_info *mtd, loff_t ofs, size_t len)
 	return cfi_varsize_frob(mtd, do_atmel_unlock, ofs, len, NULL);
 }
 
+#ifdef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_SUPPORT
+#define DO_XXLOCK_ONESECT_LOCK		((void *) 1)
+#define DO_XXLOCK_ONESECT_UNLOCK	((void *) 2)
+#define DO_XXLOCK_ONESECT_ISLOCK	((void *) 3)
+
+static inline int is_sector_locked(struct map_info *map, unsigned long adr)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	map_word status;
+	map_word ppb;
+
+	ppb     = cfi_build_cmd(1, map, cfi);
+	status  = map_read(map, adr);
+	status.x[0] &= 1; /* Check only DQ0 */
+	if (!map_word_equal(map, ppb, status)) {
+		return 1;
+	}
+	return 0;
+}
+
+static int do_advanced_xxlock_onesect(struct map_info *map, struct flchip *chip,
+			      unsigned long adr, int len, void *thunk)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	int ret;
+
+	adr += chip->start;
+
+	spin_lock(chip->mutex);
+	ret = get_chip(map, chip, adr, FL_LOCKING);
+	if (ret) {
+		spin_unlock(chip->mutex);
+		return ret;
+	}
+
+	cfi_send_gen_cmd(0xAA, cfi->addr_unlock1, chip->start, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x55, cfi->addr_unlock2, chip->start, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xC0, cfi->addr_unlock1, chip->start, map, cfi, cfi->device_type, NULL);
+
+	if (thunk == DO_XXLOCK_ONESECT_ISLOCK) {
+		if (is_sector_locked(map, adr))
+			ret = 0; /* locked */
+		else
+			ret = adr - chip->start + 1; /* free */
+	}
+#ifndef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+	else if (thunk == DO_XXLOCK_ONESECT_LOCK) {
+		if (!is_sector_locked(map, adr)) {
+			unsigned long timeo;
+			map_word toggle1,toggle2;
+
+			map_write(map, CMD(0xA0), adr);
+			map_write(map, CMD(0x00), adr);
+
+			chip->state = FL_LOCKING;
+
+			timeo = chip->word_write_time/1000;
+			if (timeo == 0)
+				timeo = 1;
+			timeo = jiffies + msecs_to_jiffies(timeo) * 5;
+			
+			UDELAY(map, chip, adr, 1000);
+
+			do {
+				toggle1  = map_read(map, adr);
+				toggle2  = map_read(map, adr);
+				if(map_word_equal(map,toggle1,toggle2)){
+					/* wait 500us */
+					UDELAY(map, chip, adr, 500);
+					goto toggle_end;
+				}
+				if (time_after(jiffies, timeo))
+					break;
+				UDELAY(map, chip, adr, 1000);
+			} while (!(toggle2.x[0] & 0x20));
+			
+			toggle1  = map_read(map, adr);
+			toggle2  = map_read(map, adr);
+			if(!map_word_equal(map,toggle1,toggle2)){
+				printk("lock DQ5 error. status=0x%lx\n",toggle2.x[0]);
+				goto lock_err;
+			}
+		toggle_end:
+			if (is_sector_locked(map, adr))
+				goto op_done;
+		lock_err:
+			/* error, reset on all failures. */
+			printk("lock error adr=0x%lx.\n",adr);
+			map_write( map, CMD(0xF0), chip->start );
+			ret = -EIO;
+			goto err_out;
+		}
+
+	} else if (thunk == DO_XXLOCK_ONESECT_UNLOCK) {
+		if (is_sector_locked(map, adr)) {
+			unsigned long timeo;
+			map_word toggle1,toggle2;
+
+			map_write( map, CMD(0x80), adr );
+			map_write( map, CMD(0x30), chip->start );
+
+			chip->state = FL_UNLOCKING;
+
+			timeo = jiffies + msecs_to_jiffies(chip->erase_time*5);
+			do {
+				toggle1  = map_read(map, adr);
+				toggle2  = map_read(map, adr);
+				if(map_word_equal(map,toggle1,toggle2)){
+					goto unlock_toggle_end;
+				}
+				if (time_after(jiffies, timeo))
+					break;
+				UDELAY(map, chip, adr, 10000);
+			} while (!(toggle2.x[0] & 0x20));
+			
+			toggle1  = map_read(map, adr);
+			toggle2  = map_read(map, adr);
+			if(!map_word_equal(map,toggle1,toggle2)){
+				printk("unlock DQ5 error. status=0x%lx\n",toggle2.x[0]);
+				goto unlock_err;
+			}
+		unlock_toggle_end:
+			if (!is_sector_locked(map, adr))
+				goto op_done;
+		unlock_err:
+			/* error, reset on all failures. */
+			printk("unlock error adr=0x%lx.\n",adr);
+			map_write( map, CMD(0xF0), chip->start );
+			ret = -EIO;
+			goto err_out;
+		}
+	}
+
+op_done:
+#endif /* CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK */
+
+	/* Exit sector protect command set. */
+	map_write( map, CMD(0x90), adr );
+	map_write( map, CMD(0x00), adr );
+
+#ifndef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+err_out:
+#endif
+	chip->state = FL_READY;
+	put_chip(map, chip, adr);
+	spin_unlock(chip->mutex);
+
+	return ret;
+}
+
+#ifndef CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+static int cfi_amdstd_advanced_lock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len)
+{
+	return cfi_varsize_frob(mtd, do_advanced_xxlock_onesect, ofs, len, DO_XXLOCK_ONESECT_LOCK);
+}
+
+static int cfi_amdstd_advanced_unlock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len)
+{
+	return cfi_varsize_frob(mtd, do_advanced_xxlock_onesect, ofs, len, DO_XXLOCK_ONESECT_UNLOCK);
+}
+#endif /* CONFIG_MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK */
+
+static int cfi_amdstd_advanced_islock_varsize(struct mtd_info *mtd, loff_t ofs, size_t len)
+{
+	int ret;
+	ret = cfi_varsize_frob(mtd, do_advanced_xxlock_onesect, ofs, len, DO_XXLOCK_ONESECT_ISLOCK);
+	/* return -errno or locked area size from offset. */
+	if (ret == 0)
+		ret = len;
+	else if (ret > 0)
+		ret = (ret & ~0x1) - ofs; /* ignore LSB */
+	return ret;
+}
+#endif /* CONFIG_MTD_CFI_AMDSTD_SECTLOCK_SUPPORT */
 
 static void cfi_amdstd_sync (struct mtd_info *mtd)
 {

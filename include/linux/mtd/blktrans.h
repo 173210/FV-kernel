@@ -47,6 +47,9 @@ struct mtd_blktrans_ops {
 	/* Block layer ioctls */
 	int (*getgeo)(struct mtd_blktrans_dev *dev, struct hd_geometry *geo);
 	int (*flush)(struct mtd_blktrans_dev *dev);
+#ifdef CONFIG_SUSPEND_TO_MTD
+	int (*rescan)(struct mtd_blktrans_dev *dev);
+#endif
 
 	/* Called with mtd_table_mutex held; no race with add/remove */
 	int (*open)(struct mtd_blktrans_dev *dev);

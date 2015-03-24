@@ -83,7 +83,11 @@ static inline int uncached_access(struct file *file, unsigned long addr)
 	 */
 	if (file->f_flags & O_SYNC)
 		return 1;
+#ifdef CONFIG_MMAP_NOHIMEMCHECK
+	return 0;
+#else
 	return addr >= __pa(high_memory);
+#endif
 #endif
 }
 

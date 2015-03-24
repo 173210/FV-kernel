@@ -1,0 +1,38 @@
+#
+# (C) Copyright TOSHIBA CORPORATION 2009
+# All Rights Reserved.
+#
+# drivers/mtd/bynd/Kconfig
+
+menu "BYND - Block laYer for Nand Driver"
+	depends on MTD && BLOCK
+
+config BYND
+	tristate "BYND (Block laYer for Nand Driver) support"
+	depends on MTD && BLOCK
+	select MTD_BLKDEVS
+	help
+	  This enables read / write access to BYND flash.
+
+config BYND_WRITE_RETRIES
+	int "BYND write retries"
+	depends on BYND
+	default "5"
+
+config BYND_ERASE_RETRIES
+	int "BYND erase retries"
+	depends on BYND
+	default "5"
+
+config BYND_MAX_LOGIC_BLK_PER_ZONE
+	int "BYND max logical blocks per zone"
+	depends on BYND
+	default "1000"
+
+config BYND_WRITE_CACHE
+	bool "BYND write cache on"
+	depends on BYND
+	default "y"
+
+endmenu
+

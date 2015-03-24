@@ -260,6 +260,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 		struct in_ifaddr **ifap1 = &ifa1->ifa_next;
 
 		while ((ifa = *ifap1) != NULL) {
+			MARK(net_del_ifa, "%s", ifa->ifa_label);
 			if (!(ifa->ifa_flags & IFA_F_SECONDARY) && 
 			    ifa1->ifa_scope <= ifa->ifa_scope)
 				last_prim = ifa;
@@ -370,6 +371,8 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 			}
 			ifa->ifa_flags |= IFA_F_SECONDARY;
 		}
+		MARK(net_insert_ifa, "%s %4b", ifa->ifa_label,
+			ifa->ifa_address);
 	}
 
 	if (!(ifa->ifa_flags & IFA_F_SECONDARY)) {

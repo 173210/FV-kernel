@@ -99,7 +99,13 @@ MODULE_ALIAS_BLOCKDEV_MAJOR(SCSI_DISK15_MAJOR);
 /*
  * Time out in seconds for disks and Magneto-opticals (which are slower).
  */
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
 #define SD_TIMEOUT		(30 * HZ)
+#define SD_TIMEOUT_RETRY	(30 * HZ)
+#define SD_TIMEOUT_SPINTIME	(30 * HZ)
+#else
+#define SD_TIMEOUT		(30 * HZ)
+#endif
 #define SD_MOD_TIMEOUT		(75 * HZ)
 
 /*
@@ -512,6 +518,9 @@ static int sd_init_command(struct scsi_cmnd * SCpnt)
 	SCpnt->underflow = this_count << 9;
 	SCpnt->allowed = SD_MAX_RETRIES;
 	SCpnt->timeout_per_command = timeout;
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	SCpnt->timeout_retry = SD_TIMEOUT_RETRY;
+#endif
 
 	/*
 	 * This is the completion routine we use.  This is matched in terms
@@ -850,7 +859,13 @@ static void sd_rescan(struct device *dev)
 	struct scsi_disk *sdkp = scsi_disk_get_from_dev(dev);
 
 	if (sdkp) {
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+		mutex_lock(&sd_ref_mutex);
+#endif
 		sd_revalidate_disk(sdkp->disk);
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+		mutex_unlock(&sd_ref_mutex);
+#endif
 		scsi_disk_put(sdkp);
 	}
 }
@@ -942,7 +957,9 @@ static void sd_rw_intr(struct scsi_cmnd * SCpnt)
 		goto out;
 
 	switch (sshdr.sense_key) {
+#ifndef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
 	case HARDWARE_ERROR:
+#endif
 	case MEDIUM_ERROR:
 		if (!blk_fs_request(SCpnt->request))
 			goto out;
@@ -998,6 +1015,15 @@ static void sd_rw_intr(struct scsi_cmnd * SCpnt)
 		     SCpnt->cmnd[0] == MODE_SELECT_10))
 			SCpnt->device->use_10_for_ms = 0;
 		break;
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	case HARDWARE_ERROR:
+	case NOT_READY: /* Device is removed. */
+		if (SCpnt->device->removable) {
+			struct scsi_disk *sdkp = dev_get_drvdata(&SCpnt->device->sdev_gendev);
+			set_media_not_present(sdkp);
+		}
+		break;
+#endif
 	default:
 		break;
 	}
@@ -1034,6 +1060,9 @@ sd_spinup_disk(struct scsi_disk *sdkp, char *diskname)
 	unsigned int the_result;
 	struct scsi_sense_hdr sshdr;
 	int sense_valid = 0;
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	int timeout = SD_TIMEOUT;
+#endif
 
 	spintime = 0;
 
@@ -1099,13 +1128,22 @@ sd_spinup_disk(struct scsi_disk *sdkp, char *diskname)
 			if (!spintime) {
 				printk(KERN_NOTICE "%s: Spinning up disk...",
 				       diskname);
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+				/* not ready - initialization required */
+				if (sshdr.asc == 4 && sshdr.ascq == 2)
+					timeout = SD_TIMEOUT_SPINTIME;
+#endif
 				cmd[0] = START_STOP;
 				cmd[1] = 1;	/* Return immediately */
 				memset((void *) &cmd[2], 0, 8);
 				cmd[4] = 1;	/* Start spin cycle */
 				scsi_execute_req(sdkp->device, cmd, DMA_NONE,
 						 NULL, 0, &sshdr,
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+						 timeout, SD_MAX_RETRIES);
+#else
 						 SD_TIMEOUT, SD_MAX_RETRIES);
+#endif
 				spintime_expire = jiffies + 100 * HZ;
 				spintime = 1;
 			}

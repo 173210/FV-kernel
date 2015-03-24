@@ -256,6 +256,7 @@ ATTRIB_NORET void kernel_thread_helper(void *arg, int (*fn)(void *))
 long kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
+	long pid;
 
 	memset(&regs, 0, sizeof(regs));
 
@@ -271,7 +272,10 @@ long kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 #endif
 
 	/* Ok, create the new process.. */
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+	pid = do_fork(flags | CLONE_VM | CLONE_UNTRACED,
+			0, &regs, 0, NULL, NULL);
+	MARK(kernel_arch_kthread_create, "%ld %p", pid, fn);
+	return pid;
 }
 
 /*

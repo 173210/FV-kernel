@@ -330,6 +330,17 @@ out:
 	putname(fs_names);
 }
  
+#ifdef CONFIG_ROOT_PRAMFS
+static int __init mount_pramfs_root(void)
+{
+        create_dev("/dev/root", ROOT_DEV);
+        if (do_mount_root("/dev/root", "pramfs",
+                          root_mountflags, root_mount_data) == 0)
+                return 1;
+        return 0;
+}
+#endif
+
 #ifdef CONFIG_ROOT_NFS
 static int __init mount_nfs_root(void)
 {
@@ -338,6 +349,28 @@ static int __init mount_nfs_root(void)
 	create_dev("/dev/root", ROOT_DEV);
 	if (data &&
 	    do_mount_root("/dev/root", "nfs", root_mountflags, data) == 0)
+		return 1;
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_ROOT_CRAMFS_LINEAR
+static int __init mount_cramfs_linear_root(void)
+{
+	create_dev("/dev/root", ROOT_DEV);
+	if (do_mount_root("/dev/root", "cramfs_linear",
+			  root_mountflags, root_mount_data) == 0)
+		return 1;
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_ROOT_SQUASHFS_LINEAR
+static int __init mount_squashfs_linear_root(void)
+{
+	create_dev("/dev/root", ROOT_DEV);
+	if (do_mount_root("/dev/root","squashfs_linear",
+			  root_mountflags, root_mount_data) == 0)
 		return 1;
 	return 0;
 }
@@ -375,6 +408,24 @@ void __init change_floppy(char *fmt, ...)
 
 void __init mount_root(void)
 {
+#ifdef CONFIG_ROOT_CRAMFS_LINEAR
+	if (mount_cramfs_linear_root())
+		return;
+
+	printk(KERN_ERR "VFS: Unable to mount linear cramfs root.\n");
+#endif
+#ifdef CONFIG_ROOT_SQUASHFS_LINEAR
+	if (mount_squashfs_linear_root())
+		return;
+
+	printk(KERN_ERR "VFS: Unable to mount linear squashfs root.\n");
+#endif
+#ifdef CONFIG_ROOT_PRAMFS
+	if (mount_pramfs_root())
+		return;
+
+	printk(KERN_ERR "VFS: Unable to mount PRAMFS root\n");
+#endif
 #ifdef CONFIG_ROOT_NFS
 	if (MAJOR(ROOT_DEV) == UNNAMED_MAJOR) {
 		if (mount_nfs_root())

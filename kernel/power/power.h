@@ -48,6 +48,10 @@ extern sector_t swsusp_resume_block;
 
 extern asmlinkage int swsusp_arch_suspend(void);
 extern asmlinkage int swsusp_arch_resume(void);
+#ifdef CONFIG_SNAPSHOT_BOOT
+extern void swsusp_arch_resume_snapshot(void);
+extern int do_snapshot_boot;
+#endif
 
 extern unsigned int count_data_pages(void);
 
@@ -133,7 +137,12 @@ struct resume_swap_area {
 #define SNAPSHOT_PMOPS			_IOW(SNAPSHOT_IOC_MAGIC, 12, unsigned int)
 #define SNAPSHOT_SET_SWAP_AREA		_IOW(SNAPSHOT_IOC_MAGIC, 13, \
 							struct resume_swap_area)
+#ifdef CONFIG_SNAPSHOT_BOOT
+#define SNAPSHOT_GET_SSBOOT_ENTRY	_IOR(SNAPSHOT_IOC_MAGIC, 64, u64)
+#define SNAPSHOT_IOC_MAXNR	64
+#else
 #define SNAPSHOT_IOC_MAXNR	13
+#endif
 
 #define PMOPS_PREPARE	1
 #define PMOPS_ENTER	2

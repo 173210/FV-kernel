@@ -1191,6 +1191,11 @@ _xfs_buf_ioapply(
 		bio->bi_end_io = xfs_buf_bio_end_io;
 		bio->bi_private = bp;
 
+#ifdef CONFIG_MIPS	/* avoid d-cache aliasing */
+		if(bp->b_addr)
+			flush_kmapped_anon_page(bp->b_pages[0],
+					  (unsigned long)bp->b_addr);
+#endif
 		bio_add_page(bio, bp->b_pages[0], PAGE_CACHE_SIZE, 0);
 		size = 0;
 
@@ -1235,6 +1240,12 @@ next_chunk:
 		if (nbytes > size)
 			nbytes = size;
 
+#ifdef CONFIG_MIPS	/* avoid d-cache aliasing */
+		if(bp->b_addr)
+			flush_kmapped_anon_page(bp->b_pages[map_i],
+					  (unsigned long)bp->b_addr
+					  + PAGE_CACHE_SIZE * map_i);
+#endif
 		rbytes = bio_add_page(bio, bp->b_pages[map_i], nbytes, offset);
 		if (rbytes < nbytes)
 			break;

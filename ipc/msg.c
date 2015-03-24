@@ -288,6 +288,8 @@ asmlinkage long sys_msgget(key_t key, int msgflg)
 	}
 	mutex_unlock(&msg_ids(ns).mutex);
 
+	MARK(ipc_msg_create, "%d %d", ret, msgflg);
+
 	return ret;
 }
 

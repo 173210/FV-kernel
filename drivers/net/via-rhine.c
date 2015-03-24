@@ -117,6 +117,10 @@ KERN_INFO DRV_NAME ".c:v1.10-LK" DRV_VERSION " " DRV_RELDATE " Written by Donald
 #else
 #endif
 
+#ifdef CONFIG_TOSHIBA_TC90412
+#define USE_BRIDGE_CACHE  /* for TXMBR cache */
+#endif
+
 MODULE_AUTHOR("Donald Becker <becker@scyld.com>");
 MODULE_DESCRIPTION("VIA Rhine PCI Fast Ethernet driver");
 MODULE_LICENSE("GPL");
@@ -506,6 +510,9 @@ static void rhine_chip_reset(struct net_device *dev)
 	IOSYNC;
 
 	if (ioread8(ioaddr + ChipCmd1) & Cmd1Reset) {
+#ifdef CONFIG_NET_POLL_CONTROLLER
+		if (debug > 1)
+#endif
 		printk(KERN_INFO "%s: Reset not complete yet. "
 			"Trying harder.\n", DRV_NAME);
 
@@ -748,11 +755,31 @@ static int __devinit rhine_init_one(struct pci_dev *pdev,
 		dev->dev_addr[i] = ioread8(ioaddr + StationAddr + i);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 
+#if !defined(MODULE) && defined(CONFIG_VIA_RHINE_PMON_ETHERADDR)
+ {
+	int i;
+	if (!is_valid_ether_addr(dev->dev_addr)) {
+		extern char *pmon_getenv(const char *name) __init;
+		char *tmpstr = pmon_getenv("etheraddr");
+		if (tmpstr) {
+			for (i = 0; i < 6; i++) {
+				dev->dev_addr[i] = simple_strtoul(tmpstr, &tmpstr, 16);
+				if (*tmpstr == ':')
+					tmpstr++;
+			}
+		}else{
+			/* set 0 as initial MAC address. */
+			memset(dev->dev_addr,0,sizeof(dev->dev_addr));
+		}
+	}
+ }
+#else
 	if (!is_valid_ether_addr(dev->perm_addr)) {
 		rc = -EIO;
 		printk(KERN_ERR "Invalid MAC address\n");
 		goto err_out_unmap;
 	}
+#endif
 
 	/* For Rhine-I/II, phy_id is loaded from EEPROM */
 	if (!phy_id)
@@ -786,6 +813,16 @@ static int __devinit rhine_init_one(struct pci_dev *pdev,
 #endif
 	if (rp->quirks & rqRhineI)
 		dev->features |= NETIF_F_SG|NETIF_F_HW_CSUM;
+
+#ifdef CONFIG_VIA_RHINE_FIXED_DEVNAME
+ {
+	char *fixed_devname = CONFIG_VIA_RHINE_FIXED_DEVNAME_STR;
+	if(fixed_devname && fixed_devname[0]) {
+		strncpy(dev->name,fixed_devname,IFNAMSIZ);
+		dev->name[IFNAMSIZ-1] = 0;
+	}
+ }
+#endif
 
 	/* dev->name not defined before register_netdev()! */
 	rc = register_netdev(dev);
@@ -1007,7 +1044,11 @@ static void rhine_check_media(struct net_device *dev, unsigned int init_media)
 	struct rhine_private *rp = netdev_priv(dev);
 	void __iomem *ioaddr = rp->base;
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	mii_check_media(&rp->mii_if, 0, init_media);
+#else
 	mii_check_media(&rp->mii_if, debug, init_media);
+#endif
 
 	if (rp->mii_if.full_duplex)
 	    iowrite8(ioread8(ioaddr + ChipCmd1) | Cmd1FDuplex,
@@ -1217,6 +1258,7 @@ static int rhine_start_tx(struct sk_buff *skb, struct net_device *dev)
 	struct rhine_private *rp = netdev_priv(dev);
 	void __iomem *ioaddr = rp->base;
 	unsigned entry;
+	unsigned long flags;
 
 	/* Caution: the write order is important here, set the field
 	   with the "ownership" bits last. */
@@ -1260,7 +1302,7 @@ static int rhine_start_tx(struct sk_buff *skb, struct net_device *dev)
 		cpu_to_le32(TXDESC | (skb->len >= ETH_ZLEN ? skb->len : ETH_ZLEN));
 
 	/* lock eth irq */
-	spin_lock_irq(&rp->lock);
+	spin_lock_irqsave(&rp->lock, flags);
 	wmb();
 	rp->tx_ring[entry].tx_status = cpu_to_le32(DescOwn);
 	wmb();
@@ -1279,7 +1321,7 @@ static int rhine_start_tx(struct sk_buff *skb, struct net_device *dev)
 
 	dev->trans_start = jiffies;
 
-	spin_unlock_irq(&rp->lock);
+	spin_unlock_irqrestore(&rp->lock, flags);
 
 	if (debug > 4) {
 		printk(KERN_DEBUG "%s: Transmit frame #%d queued in slot %d.\n",
@@ -1527,6 +1569,9 @@ static int rhine_rx(struct net_device *dev, int limit)
 		}
 		entry = (++rp->cur_rx) % RX_RING_SIZE;
 		rp->rx_head_desc = &rp->rx_ring[entry];
+#ifdef USE_BRIDGE_CACHE
+		rmb();
+#endif
 	}
 
 	/* Refill the Rx ring buffers. */
@@ -1547,6 +1592,9 @@ static int rhine_rx(struct net_device *dev, int limit)
 		}
 		rp->rx_ring[entry].rx_status = cpu_to_le32(DescOwn);
 	}
+#ifdef USE_BRIDGE_CACHE
+	wmb();
+#endif
 
 	return count;
 }
@@ -1925,14 +1973,94 @@ static void rhine_shutdown (struct pci_dev *pdev)
 }
 
 #ifdef CONFIG_PM
+/* Virtual EEPROM */
+
+#define	VIA_SEEPR (1<<24)
+#define	VIA_SEELD (1<<25)
+#define	VIA_ERDBG (1<<27)
+
+static const u32 vt6107_eeprom_init[16]= {
+	0x00000000, /* Ethernet Global ID[15:8], [7:0] */
+	0x00010000, /* Ethernet Global ID[31:24], [23:16] */
+	0x00020000, /* Ethernet Global ID[47:40], [39:32] */
+	0x00030107, /* PHY_ANAR, Reserved(always 00h) */
+	0x00040110, /* PCI Config Sub-System ID[15:0] */
+	0x00051106, /* PCI Config Sub-Vendor ID[15:0] */
+	0x00063119, /* Device ID 1, 0 */
+	0x00071106, /* Vendor ID 1, 0 */
+	0x0008101f, /* Data_SEL, PCI Power Management Capability Setting */
+	0x00090000, /* AuxCurr, PMU_DATA_REG */
+	0x000a0100, /* Reserved(always 00h) */
+	0x000b0803, /* PCI Config Max Latency, PCI Config Min Grant */
+	0x000c1001, /* Bus Control Register 1, 0 */
+	0x000d1013, /* Chip Configuration B, A */
+	0x000e3040, /* Chip Configuration D, C */
+	0x000f1d73  /* Checksum, 73h/74h */
+};
+
+static void rhine_virtual_eeprom_init(struct pci_dev *pdev)
+{
+	struct net_device *dev = pci_get_drvdata(pdev);
+	int i;
+	int timeout = 1000; /* ms */
+	u32 *table = (u32*)&vt6107_eeprom_init[0];
+	u16 venid,sysid;
+	u32 venid32,sysid32,status;
+	u8 pci_rev;
+
+	/* skip if not via-rhine */
+	pci_read_config_word(pdev,PCI_VENDOR_ID,&venid);
+	pci_read_config_word(pdev,PCI_DEVICE_ID,&sysid);
+	if((venid != 0x1106) || (sysid != 0x3065))
+		return;
+	
+	/* skip if not default subid */
+	pci_read_config_word(pdev,PCI_SUBSYSTEM_VENDOR_ID,&venid);
+	pci_read_config_word(pdev,PCI_SUBSYSTEM_ID,&sysid);
+	if((venid != 0x100d) || (sysid != 0x086c))
+		return;
+
+	/* check revision */
+	pci_read_config_byte(pdev, PCI_REVISION_ID, &pci_rev);
+	if(pci_rev < VT6107)
+		return;
+	
+	/* check virtual eeprom */
+	pci_write_config_dword(pdev,0x5c,0x08040000);
+	pci_read_config_dword(pdev,0x5c,&sysid32);
+	pci_write_config_dword(pdev,0x5c,0x08050000);
+	pci_read_config_dword(pdev,0x5c,&venid32);
+	if(venid == (table[4] & 0xffff) && sysid == (table[5] & 0xffff))
+		return; /* latest */
+
+	/* set virtual eeprom */
+	for(i=0;i<16;i++){
+		pci_write_config_dword(pdev, 0x58, *table++);
+	}
+	pci_write_config_dword(pdev, 0x5c, VIA_SEEPR);
+
+	/* check update status */
+	for(i=0; i<timeout; i++){
+		pci_read_config_dword(pdev,0x5c,&status);
+		if(status & VIA_SEELD) {
+			return; /* updated */
+		}
+		mdelay(1);
+	}
+	printk(KERN_ERR "%s: updating virtual eeprom was failed.\n",dev->name);
+	return; /* error */
+}
+
 static int rhine_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct rhine_private *rp = netdev_priv(dev);
 	unsigned long flags;
 
-	if (!netif_running(dev))
+	if (!netif_running(dev)){
+		pci_save_state(pdev);
 		return 0;
+	}
 
 	netif_device_detach(dev);
 	pci_save_state(pdev);
@@ -1952,8 +2080,13 @@ static int rhine_resume(struct pci_dev *pdev)
 	unsigned long flags;
 	int ret;
 
-	if (!netif_running(dev))
+	rhine_virtual_eeprom_init(pdev);
+	
+	if (!netif_running(dev)){
+		pci_restore_state(pdev);
+		rhine_power_init(dev);
 		return 0;
+	}
 
         if (request_irq(dev->irq, rhine_interrupt, IRQF_SHARED, dev->name, dev))
 		printk(KERN_ERR "via-rhine %s: request_irq failed\n", dev->name);

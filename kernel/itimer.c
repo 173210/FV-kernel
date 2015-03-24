@@ -133,6 +133,8 @@ int it_real_fn(struct hrtimer *timer)
 	struct signal_struct *sig =
 	    container_of(timer, struct signal_struct, real_timer);
 
+	MARK(kernel_timer_itimer_expired, "%d", sig->tsk->pid);
+
 	send_group_sig_info(SIGALRM, SEND_SIG_PRIV, sig->tsk);
 
 	if (sig->it_real_incr.tv64 != 0) {
@@ -215,6 +217,15 @@ int do_setitimer(int which, struct itimerval *value, struct itimerval *ovalue)
 	 * Scheduled for replacement in March 2007
 	 */
 	check_itimerval(value);
+
+	MARK(kernel_timer_itimer_set, "%d %*.*r %*.*r",
+			which,
+			sizeof(value->it_interval),
+			__alignof__(value->it_interval),
+			&value->it_interval,
+			sizeof(value->it_value),
+			__alignof__(value->it_value),
+			&value->it_value);
 
 	switch (which) {
 	case ITIMER_REAL:

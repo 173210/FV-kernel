@@ -784,6 +784,8 @@ specific_send_sig_info(int sig, struct siginfo *info, struct task_struct *t)
 	if (sig_ignored(t, sig))
 		goto out;
 
+	MARK(kernel_process_signal, "%d %d", t->pid, sig);
+
 	/* Support queueing exactly one non-rt signal, so that we
 	   can get more detailed information about the cause of
 	   the signal. */
@@ -1939,6 +1941,11 @@ relock:
 			 * first and our do_group_exit call below will use
 			 * that value and ignore the one we pass it.
 			 */
+#ifdef CONFIG_DUMP_REGISTERS
+			printk("EPC = 0x%08lx, SIG=%d\n", regs->cp0_epc, signr);
+			printk("PID = %d\n", current->pid);
+			show_regs(regs);
+#endif
 			do_coredump((long)signr, signr, regs);
 		}
 

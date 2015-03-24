@@ -57,6 +57,9 @@ int add_mtd_device(struct mtd_info *mtd)
 			mtd_table[i] = mtd;
 			mtd->index = i;
 			mtd->usecount = 0;
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+			mtd->flag_force_erase_badblock = 0;
+#endif
 
 			/* Some chips always power up locked. Unlock them now */
 			if ((mtd->flags & MTD_WRITEABLE)

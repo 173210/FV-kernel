@@ -510,9 +510,13 @@ void fastcall wait_on_page_bit(struct page *page, int bit_nr)
 {
 	DEFINE_WAIT_BIT(wait, &page->flags, bit_nr);
 
+	MARK(mm_filemap_wait_start, "%p", page_address(page));
+
 	if (test_bit(bit_nr, &page->flags))
 		__wait_on_bit(page_waitqueue(page), &wait, sync_page,
 							TASK_UNINTERRUPTIBLE);
+
+	MARK(mm_filemap_wait_end, "%p", page_address(page));
 }
 EXPORT_SYMBOL(wait_on_page_bit);
 

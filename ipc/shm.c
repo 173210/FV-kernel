@@ -385,6 +385,7 @@ asmlinkage long sys_shmget (key_t key, size_t size, int shmflg)
 	}
 	mutex_unlock(&shm_ids(ns).mutex);
 
+	MARK(ipc_shm_create, "%d %d", err, shmflg);
 	return err;
 }
 

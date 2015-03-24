@@ -121,6 +121,12 @@ config SPI_S3C24XX
 comment "SPI Protocol Masters"
 	depends on SPI_MASTER
 
+config SPI_IOCTL
+	tristate "SPI ioctl interface"
+	depends on SPI_MASTER
+	help
+	  SPI ioctl interface for spi_setup, spi_write and 
+	  spi_write_then_read.
 
 #
 # Add new SPI protocol masters in alphabetical order above this line

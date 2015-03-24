@@ -66,6 +66,8 @@ struct vm_area_struct;
 extern void copy_user_highpage(struct page *to, struct page *from,
 	unsigned long vaddr, struct vm_area_struct *vma);
 
+extern void flush_kmapped_anon_page(struct page *page, unsigned long vmaddr);
+
 #define __HAVE_ARCH_COPY_USER_HIGHPAGE
 
 /*

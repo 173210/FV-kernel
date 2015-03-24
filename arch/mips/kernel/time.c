@@ -388,6 +388,19 @@ void __init time_init(void)
 		/* No timer interrupt ack (e.g. i8254).  */
 		mips_timer_ack = null_timer_ack;
 
+#ifdef CONFIG_ADJUST_MONOTONIC_TIME
+ {
+	int count = clocksource_mips.read();
+	int wsec,wnsec;
+	int sec = count/mips_hpt_frequency;
+	int nsec = (count-sec*mips_hpt_frequency)*(NSEC_PER_SEC/mips_hpt_frequency);
+	wsec = wall_to_monotonic.tv_sec + sec;
+	wnsec = wall_to_monotonic.tv_nsec + nsec;
+	set_normalized_timespec(&wall_to_monotonic,
+	                        wsec, wnsec);
+	printk("Adjust monotonic time %d.%09d sec @ count=0x%08x, freq=%d\n",sec,nsec,count,mips_hpt_frequency);
+ }
+#endif
 	/*
 	 * Call board specific timer interrupt setup.
 	 *
@@ -455,6 +468,7 @@ EXPORT_SYMBOL(rtc_lock);
 EXPORT_SYMBOL(to_tm);
 EXPORT_SYMBOL(rtc_mips_set_time);
 EXPORT_SYMBOL(rtc_mips_get_time);
+EXPORT_SYMBOL(mips_hpt_frequency);
 
 unsigned long long sched_clock(void)
 {

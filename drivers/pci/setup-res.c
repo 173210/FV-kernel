@@ -159,7 +159,7 @@ int pci_assign_resource(struct pci_dev *dev, int resno)
 	}
 
 	if (ret) {
-		printk(KERN_ERR "PCI: Failed to allocate %s resource "
+		printk(KERN_WARNING "PCI: Failed to allocate %s resource "
 			"#%d:%llx@%llx for %s\n",
 			res->flags & IORESOURCE_IO ? "I/O" : "mem",
 			resno, (unsigned long long)size,

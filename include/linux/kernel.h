@@ -14,6 +14,7 @@
 #include <linux/compiler.h>
 #include <linux/bitops.h>
 #include <linux/log2.h>
+#include <linux/marker.h>
 #include <asm/byteorder.h>
 #include <asm/bug.h>
 

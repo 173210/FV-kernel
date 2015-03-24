@@ -48,6 +48,8 @@
 #include <linux/highmem.h>
 #include <linux/poll.h>
 #include <linux/mm.h>
+#include <linux/ltt-core.h>
+#include <linux/ltt-facilities.h>
 
 #include <net/sock.h>		/* siocdevprivate_ioctl */
 
@@ -1553,6 +1555,18 @@ int compat_do_execve(char * filename,
 
 	retval = search_binary_handler(bprm, regs);
 	if (retval >= 0) {
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+		{
+			int i;
+			for (i = 0; i < LTT_FAC_PER_PROCESS; i++) {
+				if (current->ltt_facilities[i] == 0)
+					break;
+				WARN_ON(ltt_facility_unregister(
+						current->ltt_facilities[i]));
+			}
+		}
+#endif //CONFIG_LTT_USERSPACE_GENERIC
+		MARK(fs_exec, "%s", filename);
 		free_arg_pages(bprm);
 
 		/* execve success */

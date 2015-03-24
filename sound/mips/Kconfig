@@ -11,5 +11,10 @@ config SND_AU1X00
 	help
 	  ALSA Sound driver for the Au1x00's AC97 port.
 
-endmenu
+config SND_TX49XX
+	tristate "TOSHIBA TX49XX ACLC"
+	depends on TX_BOARDS && SND
+	select SND_PCM
+	select SND_AC97_CODEC
 
+endmenu

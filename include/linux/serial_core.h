@@ -135,6 +135,9 @@
 /* Xilinx uartlite */
 #define PORT_UARTLITE	74
 
+/* netconsole tty type number */
+#define PORT_NETTTY     75
+
 #ifdef __KERNEL__
 
 #include <linux/compiler.h>

@@ -37,16 +37,29 @@
  *  o collapses to normal function call on systems with a single shared
  *    primary cache.
  */
+static inline void _r4k_on_each_cpu(void (*func) (void *info), void *info,
+                                   int retry, int wait)
+{
+#if !defined(CONFIG_MIPS_MT_SMP) && !defined(CONFIG_MIPS_MT_SMTC)
+	smp_call_function(func, info, retry, wait);
+#endif
+	func(info);
+}
+
 static inline void r4k_on_each_cpu(void (*func) (void *info), void *info,
                                    int retry, int wait)
 {
 	preempt_disable();
 
-#if !defined(CONFIG_MIPS_MT_SMP) && !defined(CONFIG_MIPS_MT_SMTC)
-	smp_call_function(func, info, retry, wait);
-#endif
-	func(info);
+	_r4k_on_each_cpu(func, info, retry, wait);
+
 	preempt_enable();
+}
+
+static inline void r4k_on_each_cpu_ex(void (*func) (void *info), void *info,
+                                   int retry, int wait)
+{
+	_r4k_on_each_cpu(func, info, retry, wait);
 }
 
 /*
@@ -348,6 +361,8 @@ static inline void local_r4k___flush_cache_all(void * args)
 	case CPU_R14000:
 		r4k_blast_scache();
 	}
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static void r4k___flush_cache_all(void)
@@ -355,23 +370,31 @@ static void r4k___flush_cache_all(void)
 	r4k_on_each_cpu(local_r4k___flush_cache_all, NULL, 1, 1);
 }
 
+static void r4k___flush_cache_all_ex(void)
+{
+	r4k_on_each_cpu_ex(local_r4k___flush_cache_all, NULL, 1, 1);
+}
+
 static inline void local_r4k_flush_cache_range(void * args)
 {
 	struct vm_area_struct *vma = args;
+	int exec = vma->vm_flags & VM_EXEC;
 
 	if (!(cpu_context(smp_processor_id(), vma->vm_mm)))
 		return;
 
 	r4k_blast_dcache();
+	if (exec)
+		r4k_blast_icache();
 }
 
 static void r4k_flush_cache_range(struct vm_area_struct *vma,
 	unsigned long start, unsigned long end)
 {
-	if (!cpu_has_dc_aliases)
-		return;
+	int exec = vma->vm_flags & VM_EXEC;
 
-	r4k_on_each_cpu(local_r4k_flush_cache_range, vma, 1, 1);
+	if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc))
+		r4k_on_each_cpu(local_r4k_flush_cache_range, vma, 1, 1);
 }
 
 static inline void local_r4k_flush_cache_mm(void * args)
@@ -396,6 +419,8 @@ static inline void local_r4k_flush_cache_mm(void * args)
 	}
 
 	r4k_blast_dcache();
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static void r4k_flush_cache_mm(struct mm_struct *mm)
@@ -495,11 +520,15 @@ static void r4k_flush_cache_page(struct vm_area_struct *vma,
 	args.pfn = pfn;
 
 	r4k_on_each_cpu(local_r4k_flush_cache_page, &args, 1, 1);
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static inline void local_r4k_flush_data_cache_page(void * addr)
 {
 	r4k_blast_dcache_page((unsigned long) addr);
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static void r4k_flush_data_cache_page(unsigned long addr)
@@ -538,6 +567,8 @@ static inline void local_r4k_flush_icache_range(void *args)
 		r4k_blast_icache();
 	else
 		protected_blast_icache_range(start, end);
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static void r4k_flush_icache_range(unsigned long start, unsigned long end)
@@ -644,6 +675,8 @@ static void local_r4k_flush_cache_sigtramp(void * arg)
 	}
 	if (MIPS_CACHE_SYNC_WAR)
 		__asm__ __volatile__ ("sync");
+	blast_d_bc();
+	blast_i_bc();
 }
 
 static void r4k_flush_cache_sigtramp(unsigned long addr)
@@ -824,6 +857,20 @@ static void __init probe_pcache(void)
 		c->dcache.linesz = 16 << ((config & CONF_DB) >> 4);
 		c->dcache.ways = 1;
 		c->dcache.waybit = 0;	/* does not matter */
+
+		c->options |= MIPS_CPU_CACHE_CDEX_P;
+		break;
+
+	case CPU_VR5600:
+		icache_size = 1 << (12 + ((config & CONF_IC) >> 9));
+		c->icache.linesz = 16 << ((config & CONF_IB) >> 5);
+		c->icache.ways = 4;
+		c->icache.waybit= 0;
+
+		dcache_size = 1 << (12 + ((config & CONF_DC) >> 6));
+		c->dcache.linesz = 16 << ((config & CONF_DB) >> 4);
+		c->dcache.ways = 4;
+		c->dcache.waybit = 0;
 
 		c->options |= MIPS_CPU_CACHE_CDEX_P;
 		break;
@@ -1039,6 +1086,7 @@ static int __init probe_scache(void)
 extern int r5k_sc_init(void);
 extern int rm7k_sc_init(void);
 extern int mips_sc_init(void);
+extern void txboard_sc_init(void);
 
 static void __init setup_scache(void)
 {
@@ -1082,6 +1130,12 @@ static void __init setup_scache(void)
 	case CPU_RM9000:
 #ifdef CONFIG_RM7000_CPU_SCACHE
 		rm7k_sc_init();
+#endif
+		return;
+
+	case CPU_TX49XX:
+#ifdef CONFIG_TXBOARD_CPU_SCACHE
+		txboard_sc_init();
 #endif
 		return;
 
@@ -1222,6 +1276,8 @@ void __init r4k_cache_init(void)
 	local_flush_data_cache_page	= local_r4k_flush_data_cache_page;
 	flush_data_cache_page	= r4k_flush_data_cache_page;
 	flush_icache_range	= r4k_flush_icache_range;
+
+	local_flush_cache_all   = r4k___flush_cache_all_ex;
 
 #ifdef CONFIG_DMA_NONCOHERENT
 	_dma_cache_wback_inv	= r4k_dma_cache_wback_inv;

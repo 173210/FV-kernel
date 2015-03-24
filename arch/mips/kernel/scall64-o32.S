@@ -519,4 +519,6 @@ sys_call_table:
 	PTR	compat_sys_kexec_load
 	PTR	sys_getcpu
 	PTR	sys_epoll_pwait
+	PTR	sys_ltt_trace_generic
+	PTR	sys_ltt_register_generic	/* 4315 */
 	.size	sys_call_table,.-sys_call_table

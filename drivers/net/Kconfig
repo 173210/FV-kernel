@@ -832,7 +832,7 @@ config SMC91X
 	tristate "SMC 91C9x/91C1xxx support"
 	select CRC32
 	select MII
-	depends on NET_ETHERNET && (ARM || REDWOOD_5 || REDWOOD_6 || M32R || SUPERH || SOC_AU1X00)
+	depends on NET_ETHERNET && (ARM || REDWOOD_5 || REDWOOD_6 || M32R || SUPERH || SOC_AU1X00 || MIPS)
 	help
 	  This is a driver for SMC's 91x series of Ethernet chipsets,
 	  including the SMC91C94 and the SMC91C111. Say Y if you want it
@@ -1471,6 +1471,21 @@ config TC35815
 	tristate "TOSHIBA TC35815 Ethernet support"
 	depends on NET_PCI && PCI && TOSHIBA_JMR3927
 
+config TC35815_1
+	tristate "TOSHIBA TC35815 Version 1 Ethernet support"
+	depends on NET_PCI && PCI
+	select MII
+
+config TC35815_1_DLNA
+	bool "TC35815_1 DLNA support "
+	depends on TC35815_1
+	default n
+
+config TC35815_1_RMII_CLK_OUT
+	bool "TC35815_1 RMII_CLK Output "
+	depends on TC35815_1
+	default n
+
 config DGRS
 	tristate "Digi Intl. RightSwitch SE-X support"
 	depends on NET_PCI && (PCI || EISA)
@@ -1635,6 +1650,13 @@ config 8139TOO
 	  To compile this driver as a module, choose M here: the module
 	  will be called 8139too.  This is recommended.
 
+config 8139TOO_PMON_ETHERADDR
+	bool "Use pmon etheraddr if MAC is unavailable"
+	default y
+	depends on 8139TOO
+	help
+	  If unsure, say N.
+
 config 8139TOO_PIO
 	bool "Use PIO instead of MMIO"
 	default y
@@ -1674,6 +1696,21 @@ config 8139_OLD_RX_RESET
 	  RX-reset method should be adequate for all boards.  But if you
 	  experience problems, you can enable this option to restore the
 	  old RX-reset behavior.  If unsure, say N.
+
+config 8139TOO_FIXED_DEVNAME
+	bool "Set fixed device name"
+	default n
+	depends on 8139TOO
+	help
+	  Set fixed device name like as ethX
+	  If unsure, say N.
+
+config 8139TOO_FIXED_DEVNAME_STR
+	string "Fixed device name like as ethX"
+	default ""
+	depends on 8139TOO_FIXED_DEVNAME
+	help
+	  If unsure, specify empty.
 
 config SIS900
 	tristate "SiS 900/7016 PCI Fast Ethernet Adapter support"
@@ -1765,6 +1802,28 @@ config VIA_RHINE_MMIO
 
 	  If unsure, say Y.
 
+config VIA_RHINE_PMON_ETHERADDR
+	bool "Use pmon etheraddr if MAC is unavailable"
+	default y
+	depends on VIA_RHINE
+	help
+	  If unsure, say N.
+
+config VIA_RHINE_FIXED_DEVNAME
+	bool "Set fixed device name"
+	default n
+	depends on VIA_RHINE
+	help
+	  Set fixed device name like as ethX
+	  If unsure, say N.
+
+config VIA_RHINE_FIXED_DEVNAME_STR
+	string "Fixed device name like as ethX"
+	default ""
+	depends on VIA_RHINE_FIXED_DEVNAME
+	help
+	  If unsure, specify empty.
+
 config VIA_RHINE_NAPI
 	bool "Use Rx Polling (NAPI)"
 	depends on VIA_RHINE
@@ -1778,6 +1837,12 @@ config VIA_RHINE_NAPI
 
 	  See <file:Documentation/networking/NAPI_HOWTO.txt> for more
 	  information.
+
+config VIA_RHINE_PMON_ETHERADDR
+	bool "Use pmon etheraddr if MAC is unavailable"
+	depends on VIA_RHINE
+	help
+	  If unsure, say N.
 
 config LAN_SAA9730
 	bool "Philips SAA9730 Ethernet support"
@@ -1901,6 +1966,42 @@ config NE_H8300
 	  Say Y here if you want to use the NE2000 compatible
 	  controller on the Renesas H8/300 processor.
 
+config TXBOARD_OBNE_NET
+	bool "TX onboard NE Ethernet support"
+	depends on NET_ETHERNET && TX_BOARDS
+
+config SMSC94XX_NET
+	bool "SMSC94xx chip"
+	depends on NET_ETHERNET
+	default n
+
+config SMSC94XX_PMON_ETHERADDR
+	bool "Use pmon etheraddr if MAC is unavailable"
+	default y
+	depends on SMSC94XX_NET
+	help
+	  If unsure, say N.
+
+config TXSSETH
+	bool "TX Sub System Gbit ethernet controller"
+	depends on NET_ETHERNET && TOSHIBA_TC90416
+	select PHYLIB
+	default n
+
+config TXSSETH_PMON_ETHERADDR
+	bool "Use pmon etheraddr if MAC is unavailable"
+	default y
+	depends on TXSSETH
+	help
+	  If unsure, say N.
+
+config TXSSETH_ETHERMAC_WORKAROUND
+	bool "Apply workaround for EtherMAC bus bridge HW error"
+	default n
+	depends on TXSSETH
+	help
+	  If unsure, say N.
+ 
 source "drivers/net/fec_8xx/Kconfig"
 source "drivers/net/fs_enet/Kconfig"
 
@@ -2914,5 +3015,28 @@ config NETPOLL_TRAP
 
 config NET_POLL_CONTROLLER
 	def_bool NETPOLL
+
+config NETCONSOLE_TTY
+	bool "Network console tty support (EXPERIMENTAL)"
+	depends on NETCONSOLE
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+
+config NETCPURATE
+	bool "Networking CPU Rate"
+	select NETPOLL
+	depends on NETDEVICES
+
+config NETCPURATE_OPTION
+	string "Networking CPU Rate Option"
+	depends on NETCPURATE
+	---help---
+	For example
+	"6663@192.168.0.1/eth0,6664@192.168.0.2/00:11:22:33:44:55".
+
+config NETCPURATE_SCHED_PRIO
+	int "Priority setting <0..99> (default is the highest priority)"
+	depends on NETCPURATE
+	default "99"
 
 endmenu

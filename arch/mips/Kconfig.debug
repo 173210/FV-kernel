@@ -18,6 +18,19 @@ config CROSSCOMPILE
 	  You will have to pass the value for CROSS_COMPILE manually if the
 	  name prefix for your tools is different.
 
+choice
+	prompt "Tool chain type"
+	default CELINUX3TOOL
+	depends on CROSSCOMPILE
+
+config CELINUX2TOOL
+	bool "CE Linux 2.0 tool chain"
+
+config CELINUX3TOOL
+	bool "CE Linux 3.0 tool chain"
+
+endchoice
+
 config CMDLINE
 	string "Default kernel command string"
 	default ""
@@ -82,5 +95,18 @@ config MIPS_UNCACHED
 	  otherwise hard to track bugs.  It can also useful if you're doing
 	  hardware debugging with a logic analyzer and need to see all traffic
 	  on the bus.
+
+config PTRACE_MMAPENABLE
+	bool "Enable gdb to access mmap area."
+	default n
+	help
+	 The range is less than (physical address)0x20000000 (except 0).
+
+config DUMP_DEFLATE_CORE
+	bool "Support for zlib deflated core dump"
+	select ZLIB_DEFLATE
+
+config DUMP_REGISTERS
+	bool "Support for register dump at core dump"
 
 endmenu

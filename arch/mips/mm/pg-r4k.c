@@ -41,7 +41,14 @@
 
 static unsigned int clear_page_array[0x130 / 4];
 
+#ifdef CONFIG_XIP_KERNEL
+void clear_page(void * page){
+	static void (*clear_page_xip)(void *) = (void (*)(void *))clear_page_array;
+	clear_page_xip(page);
+}
+#else
 void clear_page(void * page) __attribute__((alias("clear_page_array")));
+#endif
 
 EXPORT_SYMBOL(clear_page);
 
@@ -55,7 +62,15 @@ EXPORT_SYMBOL(clear_page);
  */
 static unsigned int copy_page_array[0x148 / 4];
 
+#ifdef CONFIG_XIP_KERNEL
+void copy_page(void *to, void *from){
+	static void (*copy_page_xip)(void *,void *) =
+		(void (*)(void *,void *))copy_page_array;
+	copy_page_xip(to,from);
+}
+#else
 void copy_page(void *to, void *from) __attribute__((alias("copy_page_array")));
+#endif
 
 EXPORT_SYMBOL(copy_page);
 

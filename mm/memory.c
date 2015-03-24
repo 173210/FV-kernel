@@ -1035,7 +1035,8 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			continue;
 		}
 
-		if (!vma || (vma->vm_flags & (VM_IO | VM_PFNMAP))
+		if (!vma || ((vma->vm_flags & (VM_IO | VM_PFNMAP))
+				&& !(vma->vm_flags & VM_XIP))
 				|| !(vm_flags & vma->vm_flags))
 			return i ? : -EFAULT;
 
@@ -1496,6 +1497,53 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	int reuse = 0, ret = VM_FAULT_MINOR;
 	struct page *dirty_page = NULL;
 
+#ifdef CONFIG_CRAMFS_LINEAR_XIP
+	if (unlikely(!pfn_valid(pte_pfn(orig_pte)))) {
+		if ((vma->vm_flags & VM_XIP) && pte_present(orig_pte) &&
+		    pte_read(orig_pte)) {
+			/*
+			 * Handle COW of XIP memory.
+			 * Note that the source memory actually isn't a ram
+			 * page so no struct page is associated to the source
+			 * pte.
+			 */
+			char *dst;
+			int ret;
+
+			spin_unlock(&mm->page_table_lock);
+			new_page = alloc_page(GFP_HIGHUSER);
+			if (!new_page)
+				return VM_FAULT_OOM;
+
+			/* copy XIP data to memory */
+			dst = kmap_atomic(new_page, KM_USER0);
+			ret = copy_from_user(dst, (void __user *)address, PAGE_SIZE);
+			kunmap_atomic(dst, KM_USER0);
+
+			/* make sure pte didn't change while we dropped the
+			   lock */
+			spin_lock(&mm->page_table_lock);
+			if (!ret && pte_same(*page_table, orig_pte)) {
+				inc_mm_counter(mm, file_rss);
+				flush_cache_page(vma, address, pte_pfn(orig_pte));
+				entry = mk_pte(new_page, vma->vm_page_prot);
+				entry = maybe_mkwrite(pte_mkdirty(entry), vma);
+				ptep_establish(vma, address, page_table, entry);
+				update_mmu_cache(vma, address, entry);
+				lazy_mmu_prot_update(entry);
+				lru_cache_add(new_page);
+				page_add_file_rmap(new_page);
+				spin_unlock(&mm->page_table_lock);
+				return VM_FAULT_MINOR;  /* Minor fault */
+			}
+
+			/* pte changed: back off */
+			spin_unlock(&mm->page_table_lock);
+			page_cache_release(new_page);
+			return ret ? VM_FAULT_OOM : VM_FAULT_MINOR;
+		}
+	}
+#endif
 	old_page = vm_normal_page(vma, address, orig_pte);
 	if (!old_page)
 		goto gotten;
@@ -2000,6 +2048,7 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
 	page = lookup_swap_cache(entry);
 	if (!page) {
+		MARK(mm_swap_in, "%lu", address);
 		grab_swap_token(); /* Contend for token _before_ read-in */
  		swapin_readahead(entry, address, vma);
  		page = read_swap_cache_async(entry, vma, address);
@@ -2448,30 +2497,44 @@ unlock:
 int __handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		unsigned long address, int write_access)
 {
+	int res;
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 
+	MARK(mm_handle_fault_entry, "%lu %ld", address, KSTK_EIP(current));
+
 	__set_current_state(TASK_RUNNING);
 
 	count_vm_event(PGFAULT);
 
-	if (unlikely(is_vm_hugetlb_page(vma)))
-		return hugetlb_fault(mm, vma, address, write_access);
+	if (unlikely(is_vm_hugetlb_page(vma))) {
+		res = hugetlb_fault(mm, vma, address, write_access);
+		goto end;
+	}
 
 	pgd = pgd_offset(mm, address);
 	pud = pud_alloc(mm, pgd, address);
-	if (!pud)
-		return VM_FAULT_OOM;
+	if (!pud) {
+		res = VM_FAULT_OOM;
+		goto end;
+	}
 	pmd = pmd_alloc(mm, pud, address);
-	if (!pmd)
-		return VM_FAULT_OOM;
+	if (!pmd) {
+		res = VM_FAULT_OOM;
+		goto end;
+	}
 	pte = pte_alloc_map(mm, pmd, address);
-	if (!pte)
-		return VM_FAULT_OOM;
+	if (!pte) {
+		res = VM_FAULT_OOM;
+		goto end;
+	}
 
-	return handle_pte_fault(mm, vma, address, pte, pmd, write_access);
+	res = handle_pte_fault(mm, vma, address, pte, pmd, write_access);
+end:
+	MARK(mm_handle_fault_exit, MARK_NOARGS);
+	return res;
 }
 
 EXPORT_SYMBOL_GPL(__handle_mm_fault);

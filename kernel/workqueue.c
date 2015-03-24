@@ -354,7 +354,22 @@ static int worker_thread(void *__cwq)
 	if (!cwq->freezeable)
 		current->flags |= PF_NOFREEZE;
 
+#ifdef CONFIG_USB_RTSCHED
+	if (!strcmp(cwq->wq->name, "khelper")) {
+		struct sched_param param = {
+			.sched_priority = CONFIG_USB_RTSCHED_PRIO + CONFIG_USB_RTSCHED_PRIO_SUB
+		};
+		sched_setscheduler(current, SCHED_FIFO, &param);
+	} else if (!strcmp(cwq->wq->name, "kblockd")) {
+		struct sched_param param = {
+			.sched_priority = CONFIG_USB_RTSCHED_PRIO
+		};
+		sched_setscheduler(current, SCHED_FIFO, &param);
+	} else
+		set_user_nice(current, -5);
+#else
 	set_user_nice(current, -5);
+#endif
 
 	/* Block and flush all signals */
 	sigfillset(&blocked);

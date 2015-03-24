@@ -951,7 +951,6 @@ static int autosuspend_check(struct usb_device *udev)
 	/* For autosuspend, fail fast if anything is in use.
 	 * Also fail if any interfaces require remote wakeup but it
 	 * isn't available. */
-	udev->do_remote_wakeup = device_may_wakeup(&udev->dev);
 	if (udev->pm_usage_cnt > 0)
 		return -EBUSY;
 	if (udev->actconfig) {

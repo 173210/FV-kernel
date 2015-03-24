@@ -13,6 +13,7 @@
 #include <linux/mtd/flashchip.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi_endian.h>
+#include <linux/mtd/xip.h>
 
 #ifdef CONFIG_MTD_CFI_I1
 #define cfi_interleave(cfi) 1
@@ -421,6 +422,13 @@ static inline uint32_t cfi_send_gen_cmd(u_char cmd, uint32_t cmd_addr, uint32_t 
 	return addr - base;
 }
 
+int __xipram cfi_qry_present(struct map_info *map, __u32 base,
+			     struct cfi_private *cfi);
+int __xipram cfi_qry_mode_on(uint32_t base, struct map_info *map,
+			     struct cfi_private *cfi);
+void __xipram cfi_qry_mode_off(uint32_t base, struct map_info *map,
+			       struct cfi_private *cfi);
+
 static inline uint8_t cfi_read_query(struct map_info *map, uint32_t addr)
 {
 	map_word val = map_read(map, addr);
@@ -478,6 +486,7 @@ struct cfi_fixup {
 #define CFI_MFR_AMD 0x0001
 #define CFI_MFR_ATMEL 0x001F
 #define CFI_MFR_ST  0x0020 	/* STMicroelectronics */
+#define CFI_MFR_SMS 0x00ec      /* Samsung */
 
 void cfi_fixup(struct mtd_info *mtd, struct cfi_fixup* fixups);
 

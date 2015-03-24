@@ -51,6 +51,11 @@
 #include <linux/mtd/partitions.h>
 #endif
 
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+#include <linux/vmalloc.h>
+int f_page_read_counter = 0;
+#endif
+
 /* Define default oob placement schemes for large and small page devices */
 static struct nand_ecclayout nand_oob_8 = {
 	.eccbytes = 3,
@@ -682,8 +687,11 @@ nand_get_device(struct nand_chip *chip, struct mtd_info *mtd, int new_state)
 		return 0;
 	}
 	if (new_state == FL_PM_SUSPENDED) {
-		spin_unlock(lock);
-		return (chip->state == FL_PM_SUSPENDED) ? 0 : -EAGAIN;
+		if (chip->controller->active->state == FL_PM_SUSPENDED) {
+			chip->state = FL_PM_SUSPENDED;
+			spin_unlock(lock);
+			return 0;
+		}
 	}
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	add_wait_queue(wq, &wait);
@@ -996,6 +1004,11 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 			if (ret < 0)
 				break;
 
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+			if(chip->page_read_count_table)
+				chip->page_read_count_table[page]++;
+#endif
+
 			/* Transfer not aligned data */
 			if (!aligned) {
 				chip->pagebuf = realpage;
@@ -1272,10 +1285,25 @@ static int nand_do_read_oob(struct mtd_info *mtd, loff_t from,
 	DEBUG(MTD_DEBUG_LEVEL3, "nand_read_oob: from = 0x%08Lx, len = %i\n",
 	      (unsigned long long)from, readlen);
 
-	if (ops->mode == MTD_OOB_RAW)
-		len = mtd->oobsize;
-	else
+	if (ops->mode == MTD_OOB_AUTO)
 		len = chip->ecc.layout->oobavail;
+	else
+		len = mtd->oobsize;
+
+	if (unlikely(ops->ooboffs >= len)) {
+		DEBUG(MTD_DEBUG_LEVEL0, "nand_read_oob: "
+			"Attempt to start read outside oob\n");
+		return -EINVAL;
+	}
+
+	/* Do not allow reads past end of device */
+	if (unlikely(from >= mtd->size ||
+		     ops->ooboffs + readlen > ((mtd->size >> chip->page_shift) -
+					(from >> chip->page_shift)) * len)) {
+		DEBUG(MTD_DEBUG_LEVEL0, "nand_read_oob: "
+			"Attempt read beyond end of device\n");
+		return -EINVAL;
+	}
 
 	chipnr = (int)(from >> chip->chip_shift);
 	chip->select_chip(mtd, chipnr);
@@ -1671,6 +1699,14 @@ static int nand_do_write_ops(struct mtd_info *mtd, loff_t to,
 		if (ret)
 			break;
 
+#if defined(CONFIG_MTD_NAND_VERIFY_WRITE_SUBPAGE) && !defined(CONFIG_MTD_NAND_VERIFY_WRITE)
+		/* Send command to read back the data */
+		chip->cmdfunc(mtd, NAND_CMD_READ0, 0, page);
+
+		if (chip->verify_buf_column(mtd, wbuf, mtd->writesize, column, bytes))
+			return -EIO;
+#endif
+
 		writelen -= bytes;
 		if (!writelen)
 			break;
@@ -1742,16 +1778,37 @@ static int nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
 			     struct mtd_oob_ops *ops)
 {
-	int chipnr, page, status;
+	int chipnr, page, status, len;
 	struct nand_chip *chip = mtd->priv;
 
 	DEBUG(MTD_DEBUG_LEVEL3, "nand_write_oob: to = 0x%08x, len = %i\n",
 	      (unsigned int)to, (int)ops->ooblen);
 
+	if (ops->mode == MTD_OOB_AUTO)
+		len = chip->ecc.layout->oobavail;
+	else
+		len = mtd->oobsize;
+
 	/* Do not allow write past end of page */
-	if ((ops->ooboffs + ops->ooblen) > mtd->oobsize) {
+	if ((ops->ooboffs + ops->ooblen) > len) {
 		DEBUG(MTD_DEBUG_LEVEL0, "nand_write_oob: "
 		      "Attempt to write past end of page\n");
+		return -EINVAL;
+	}
+
+	if (unlikely(ops->ooboffs >= len)) {
+		DEBUG(MTD_DEBUG_LEVEL0, "nand_do_write_oob: "
+			"Attempt to start write outside oob\n");
+		return -EINVAL;
+	}
+
+	/* Do not allow reads past end of device */
+	if (unlikely(to >= mtd->size ||
+		     ops->ooboffs + ops->ooblen >
+			((mtd->size >> chip->page_shift) -
+			 (to >> chip->page_shift)) * len)) {
+		DEBUG(MTD_DEBUG_LEVEL0, "nand_do_write_oob: "
+			"Attempt write beyond end of device\n");
 		return -EINVAL;
 	}
 
@@ -1960,6 +2017,9 @@ int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 		/*
 		 * heck if we have a bad block, we do not erase bad blocks !
 		 */
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+		if ( !mtd->flag_force_erase_badblock ) {
+#endif
 		if (nand_block_checkbad(mtd, ((loff_t) page) <<
 					chip->page_shift, 0, allowbbt)) {
 			printk(KERN_WARNING "nand_erase: attempt to erase a "
@@ -1967,6 +2027,9 @@ int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 			instr->state = MTD_ERASE_FAILED;
 			goto erase_exit;
 		}
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+		}
+#endif
 
 		/*
 		 * Invalidate the page cache, if we erase the block which
@@ -2004,6 +2067,14 @@ int nand_erase_nand(struct mtd_info *mtd, struct erase_info *instr,
 		if (bbt_masked_page != 0xffffffff &&
 		    (page & BBT_PAGE_MASK) == bbt_masked_page)
 			    rewrite_bbt[chipnr] = (page << chip->page_shift);
+
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+		if(chip->page_read_count_table) {
+			int i, erase_page_num = (int)(mtd->erasesize / mtd->writesize);
+			for(i=0; i<erase_page_num; i++)
+				chip->page_read_count_table[page + i] = 0;
+		}
+#endif
 
 		/* Increment page address and decrement length */
 		len -= (1 << chip->phys_erase_shift);
@@ -2199,6 +2270,10 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	/* Read manufacturer and device IDs */
 	*maf_id = chip->read_byte(mtd);
 	dev_id = chip->read_byte(mtd);
+	chip->maf_id = *maf_id;
+	chip->dev_id = dev_id;
+	chip->extid3 = chip->read_byte(mtd);
+	chip->extid4 = chip->read_byte(mtd);
 
 	/* Lookup the flash id */
 	for (i = 0; nand_flash_ids[i].name != NULL; i++) {
@@ -2220,9 +2295,9 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 	if (!type->pagesize) {
 		int extid;
 		/* The 3rd id byte holds MLC / multichip data */
-		chip->cellinfo = chip->read_byte(mtd);
+		chip->cellinfo = chip->extid3;
 		/* The 4th id byte is the important one */
-		extid = chip->read_byte(mtd);
+		extid = chip->extid4;
 		/* Calc pagesize */
 		mtd->writesize = 1024 << (extid & 0x3);
 		extid >>= 2;
@@ -2549,6 +2624,22 @@ int nand_scan_tail(struct mtd_info *mtd)
 	/* propagate ecc.layout to mtd_info */
 	mtd->ecclayout = chip->ecc.layout;
 
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+	if (f_page_read_counter) {
+		if(!chip->page_read_count_table) {
+			size_t prc_table_num = (size_t)(mtd->size / mtd->writesize);
+			size_t prc_table_size = prc_table_num * sizeof(u_int16_t);
+			chip->page_read_count_table = (u_int16_t *)vmalloc(prc_table_size);
+			if (!chip->page_read_count_table) {
+				printk(KERN_WARNING "Unable to allocate Page_Read_Count_Table.\n");
+				f_page_read_counter = 0;
+			} else
+				memset(chip->page_read_count_table, 0, prc_table_size);
+		}
+	} else
+		chip->page_read_count_table = NULL;
+#endif
+
 	/* Check, if we should skip the bad block table scan */
 	if (chip->options & NAND_SKIP_BBTSCAN)
 		return 0;
@@ -2614,12 +2705,27 @@ void nand_release(struct mtd_info *mtd)
 	kfree(chip->bbt);
 	if (!(chip->options & NAND_OWN_BUFFERS))
 		kfree(chip->buffers);
+
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+	if (chip->page_read_count_table)
+		vfree(chip->page_read_count_table);
+#endif
 }
 
 EXPORT_SYMBOL_GPL(nand_scan);
 EXPORT_SYMBOL_GPL(nand_scan_ident);
 EXPORT_SYMBOL_GPL(nand_scan_tail);
 EXPORT_SYMBOL_GPL(nand_release);
+
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+static int __init nand_readcount_param_parse(const char *val, struct kernel_param *kp)
+{
+	f_page_read_counter = simple_strtoul(val, NULL, 0);
+	return 0;
+}
+module_param_call( count, nand_readcount_param_parse, NULL, NULL, 000);
+MODULE_PARM_DESC( count, "i" );
+#endif
 
 static int __init nand_base_init(void)
 {

@@ -993,6 +993,7 @@ static void activate_task(struct task_struct *p, struct rq *rq, int local)
 	}
 	p->timestamp = now;
 out:
+	netcpurate_activate_period_start(p);
 	__activate_task(p, rq);
 }
 
@@ -1115,6 +1116,7 @@ void wait_task_inactive(struct task_struct *p)
 
 repeat:
 	rq = task_rq_lock(p, &flags);
+	MARK(kernel_sched_wait_task, "%d %ld", p->pid, p->state);
 	/* Must be off runqueue entirely, not preempted. */
 	if (unlikely(p->array || task_running(rq, p))) {
 		/* If it's preempted, we yield.  It could be a while. */
@@ -1408,6 +1410,7 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state, int sync)
 #endif
 
 	rq = task_rq_lock(p, &flags);
+	MARK(kernel_sched_try_wakeup, "%d %ld", p->pid, p->state);
 	old_state = p->state;
 	if (!(old_state & state))
 		goto out;
@@ -1648,6 +1651,7 @@ void fastcall wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 	int this_cpu, cpu;
 
 	rq = task_rq_lock(p, &flags);
+	MARK(kernel_sched_wakeup_new_task, "%d %ld", p->pid, p->state);
 	BUG_ON(p->state != TASK_RUNNING);
 	this_cpu = smp_processor_id();
 	cpu = task_cpu(p);
@@ -1864,6 +1868,14 @@ context_switch(struct rq *rq, struct task_struct *prev,
 #ifndef __ARCH_WANT_UNLOCKED_CTXSW
 	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
 #endif
+	netcpurate_task_period(prev, next);
+
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#include "kmc.h"
+__KMC_SCHED_CALL(prev,next);
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */
 
 	/* Here we just switch the register state and the stack. */
 	switch_to(prev, next, prev);
@@ -2034,6 +2046,8 @@ static void sched_migrate_task(struct task_struct *p, int dest_cpu)
 	    || unlikely(cpu_is_offline(dest_cpu)))
 		goto out;
 
+	MARK(kernel_sched_migrate_task, "%d %ld %d",
+		p->pid, p->state, dest_cpu);
 	/* force the process onto the specified CPU */
 	if (migrate_task(p, dest_cpu, &req)) {
 		/* Need to wait for migration thread (might exit: take ref). */
@@ -3557,6 +3571,8 @@ switch_tasks:
 		++*switch_count;
 
 		prepare_task_switch(rq, next);
+		MARK(kernel_sched_schedule, "%d %d %ld", 
+			prev->pid, next->pid, prev->state);
 		prev = context_switch(rq, prev, next);
 		barrier();
 		/*

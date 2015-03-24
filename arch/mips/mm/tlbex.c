@@ -872,6 +872,8 @@ static __init void build_tlb_write_entry(u32 **p, struct label **l,
 		break;
 
 	case CPU_R4300:
+	case CPU_R5500:
+	case CPU_VR5600:
 	case CPU_5KC:
 	case CPU_TX49XX:
 	case CPU_AU1000:
@@ -1592,7 +1594,13 @@ static void __init build_r3000_tlb_load_handler(void)
 	build_r3000_tlb_reload_write(&p, &l, &r, K0, K1);
 
 	l_nopage_tlbl(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_0));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_0));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_0 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbl) > FASTPATH_SIZE)
@@ -1627,7 +1635,13 @@ static void __init build_r3000_tlb_store_handler(void)
 	build_r3000_tlb_reload_write(&p, &l, &r, K0, K1);
 
 	l_nopage_tlbs(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_1));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_1));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbs) > FASTPATH_SIZE)
@@ -1662,7 +1676,13 @@ static void __init build_r3000_tlb_modify_handler(void)
 	build_r3000_pte_reload_tlbwi(&p, K0, K1);
 
 	l_nopage_tlbm(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_1));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_1));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbm) > FASTPATH_SIZE)
@@ -1749,7 +1769,13 @@ static void __init build_r4000_tlb_load_handler(void)
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
 
 	l_nopage_tlbl(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_0));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_0));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_0 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbl) > FASTPATH_SIZE)
@@ -1783,7 +1809,13 @@ static void __init build_r4000_tlb_store_handler(void)
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
 
 	l_nopage_tlbs(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_1));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_1));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbs) > FASTPATH_SIZE)
@@ -1818,7 +1850,13 @@ static void __init build_r4000_tlb_modify_handler(void)
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, K0, K1);
 
 	l_nopage_tlbm(&l, p);
+#ifdef CONFIG_XIP_KERNEL
+	i_lui(&p, K1, rel_hi((unsigned long)tlb_do_page_fault_1));
+	i_addiu(&p,K1,K1,rel_lo((unsigned long)tlb_do_page_fault_1));
+	i_jr(&p,K1);
+#else
 	i_j(&p, (unsigned long)tlb_do_page_fault_1 & 0x0fffffff);
+#endif
 	i_nop(&p);
 
 	if ((p - handle_tlbm) > FASTPATH_SIZE)

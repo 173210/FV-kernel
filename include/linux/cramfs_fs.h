@@ -12,7 +12,11 @@
  */
 #define CRAMFS_MODE_WIDTH 16
 #define CRAMFS_UID_WIDTH 16
+#if defined(CONFIG_CRAMFS_EXPAND_SIZE) && CONFIG_CRAMFS_SIZE_WIDTH>24
+#define CRAMFS_SIZE_WIDTH CONFIG_CRAMFS_SIZE_WIDTH
+#else
 #define CRAMFS_SIZE_WIDTH 24
+#endif
 #define CRAMFS_GID_WIDTH 8
 #define CRAMFS_NAMELEN_WIDTH 6
 #define CRAMFS_OFFSET_WIDTH 26
@@ -29,7 +33,12 @@
 struct cramfs_inode {
 	__u32 mode:CRAMFS_MODE_WIDTH, uid:CRAMFS_UID_WIDTH;
 	/* SIZE for device files is i_rdev */
+#ifdef CONFIG_CRAMFS_EXPAND_SIZE
+	__u32 size;
+	__u32 gid;
+#else
 	__u32 size:CRAMFS_SIZE_WIDTH, gid:CRAMFS_GID_WIDTH;
+#endif
 	/* NAMELEN is the length of the file name, divided by 4 and
            rounded up.  (cramfs doesn't support hard links.) */
 	/* OFFSET: For symlinks and non-empty regular files, this

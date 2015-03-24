@@ -1841,6 +1841,9 @@ void trace_hardirqs_on(void)
 	struct task_struct *curr = current;
 	unsigned long ip;
 
+	_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, locking_hardirqs_on, "%lu",
+		(unsigned long) __builtin_return_address(0));
+
 	if (unlikely(!debug_locks || current->lockdep_recursion))
 		return;
 
@@ -1888,6 +1891,9 @@ void trace_hardirqs_off(void)
 {
 	struct task_struct *curr = current;
 
+	_MARK(_MF_DEFAULT & (~_MF_LOCKDEP), locking_hardirqs_off, "%lu",
+		(unsigned long) __builtin_return_address(0));
+
 	if (unlikely(!debug_locks || current->lockdep_recursion))
 		return;
 
@@ -1914,6 +1920,9 @@ EXPORT_SYMBOL(trace_hardirqs_off);
 void trace_softirqs_on(unsigned long ip)
 {
 	struct task_struct *curr = current;
+
+	_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, locking_softirqs_on, "%lu",
+		(unsigned long) __builtin_return_address(0));
 
 	if (unlikely(!debug_locks))
 		return;
@@ -1948,6 +1957,9 @@ void trace_softirqs_on(unsigned long ip)
 void trace_softirqs_off(unsigned long ip)
 {
 	struct task_struct *curr = current;
+
+	_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, locking_softirqs_off, "%lu",
+		(unsigned long) __builtin_return_address(0));
 
 	if (unlikely(!debug_locks))
 		return;
@@ -2014,6 +2026,9 @@ static int __lock_acquire(struct lockdep_map *lock, unsigned int subclass,
 	unsigned int depth, id;
 	int chain_head = 0;
 	u64 chain_key;
+
+	_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, locking_lock_acquire,
+		"%lu %u %p %d", ip, subclass, lock, trylock);
 
 	if (unlikely(!debug_locks))
 		return 0;
@@ -2372,6 +2387,9 @@ static void
 __lock_release(struct lockdep_map *lock, int nested, unsigned long ip)
 {
 	struct task_struct *curr = current;
+
+	_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, locking_lock_release,
+		"%lu %p %d", ip, lock, nested);
 
 	if (!check_unlock(curr, lock, ip))
 		return;

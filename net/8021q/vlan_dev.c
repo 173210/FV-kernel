@@ -118,7 +118,7 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	unsigned char *rawp = NULL;
 	struct vlan_hdr *vhdr = (struct vlan_hdr *)(skb->data);
 	unsigned short vid;
-	struct net_device_stats *stats;
+	struct net_device_stats *stats = NULL;
 	unsigned short vlan_TCI;
 	__be16 proto;
 
@@ -144,24 +144,29 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	 */
 
 	rcu_read_lock();
-	skb->dev = __find_vlan_dev(dev, vid);
-	if (!skb->dev) {
-		rcu_read_unlock();
+
+	if (vid != 0) {
+
+		skb->dev = __find_vlan_dev(dev, vid);
+		if (!skb->dev) {
+			rcu_read_unlock();
 
 #ifdef VLAN_DEBUG
-		printk(VLAN_DBG "%s: ERROR: No net_device for VID: %i on dev: %s [%i]\n",
-			__FUNCTION__, (unsigned int)(vid), dev->name, dev->ifindex);
+			printk(VLAN_DBG "%s: ERROR: No net_device for VID: %i on dev: %s [%i]\n",
+			       __FUNCTION__, (unsigned int)(vid), dev->name, dev->ifindex);
 #endif
-		kfree_skb(skb);
-		return -1;
+			kfree_skb(skb);
+			return -1;
+		}
+
+		skb->dev->last_rx = jiffies;
+
+		/* Bump the rx counters for the VLAN device. */
+		stats = vlan_dev_get_stats(skb->dev);
+		stats->rx_packets++;
+		stats->rx_bytes += skb->len;
+
 	}
-
-	skb->dev->last_rx = jiffies;
-
-	/* Bump the rx counters for the VLAN device. */
-	stats = vlan_dev_get_stats(skb->dev);
-	stats->rx_packets++;
-	stats->rx_bytes += skb->len;
 
 	/* Take off the VLAN header (4 bytes currently) */
 	skb_pull_rcsum(skb, VLAN_HLEN);
@@ -170,7 +175,7 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	 * came in on is what this VLAN is attached to.
 	 */
 
-	if (dev != VLAN_DEV_INFO(skb->dev)->real_dev) {
+	if (vid != 0 && dev != VLAN_DEV_INFO(skb->dev)->real_dev) {
 		rcu_read_unlock();
 
 #ifdef VLAN_DEBUG
@@ -195,31 +200,33 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 		ntohs(vhdr->h_vlan_TCI));
 #endif
 
-	/* The ethernet driver already did the pkt_type calculations
-	 * for us...
-	 */
-	switch (skb->pkt_type) {
-	case PACKET_BROADCAST: /* Yeah, stats collect these together.. */
-		// stats->broadcast ++; // no such counter :-(
-		break;
-
-	case PACKET_MULTICAST:
-		stats->multicast++;
-		break;
-
-	case PACKET_OTHERHOST: 
-		/* Our lower layer thinks this is not local, let's make sure.
-		 * This allows the VLAN to have a different MAC than the underlying
-		 * device, and still route correctly.
+	if (vid != 0) {
+		/* The ethernet driver already did the pkt_type calculations
+		 * for us...
 		 */
-		if (!compare_ether_addr(eth_hdr(skb)->h_dest, skb->dev->dev_addr)) {
-			/* It is for our (changed) MAC-address! */
-			skb->pkt_type = PACKET_HOST;
-		}
-		break;
-	default:
-		break;
-	};
+		switch (skb->pkt_type) {
+		case PACKET_BROADCAST: /* Yeah, stats collect these together.. */
+			// stats->broadcast ++; // no such counter :-(
+			break;
+
+		case PACKET_MULTICAST:
+			stats->multicast++;
+			break;
+
+		case PACKET_OTHERHOST: 
+			/* Our lower layer thinks this is not local, let's make sure.
+			 * This allows the VLAN to have a different MAC than the underlying
+			 * device, and still route correctly.
+			 */
+			if (!compare_ether_addr(eth_hdr(skb)->h_dest, skb->dev->dev_addr)) {
+				/* It is for our (changed) MAC-address! */
+				skb->pkt_type = PACKET_HOST;
+			}
+			break;
+		default:
+			break;
+		};
+	}
 
 	/*  Was a VLAN packet, grab the encapsulated protocol, which the layer
 	 * three protocols care about.
@@ -233,17 +240,21 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 		 * true layer 3 protocols.
 		 */
 
-		/* See if we are configured to re-write the VLAN header
-		 * to make it look like ethernet...
-		 */
-		skb = vlan_check_reorder_header(skb);
-
-		/* Can be null if skb-clone fails when re-ordering */
-		if (skb) {
+		if (vid == 0) {
 			netif_rx(skb);
 		} else {
-			/* TODO:  Add a more specific counter here. */
-			stats->rx_errors++;
+			/* See if we are configured to re-write the VLAN header
+			 * to make it look like ethernet...
+			 */
+			skb = vlan_check_reorder_header(skb);
+
+			/* Can be null if skb-clone fails when re-ordering */
+			if (skb) {
+				netif_rx(skb);
+			} else {
+				/* TODO:  Add a more specific counter here. */
+				stats->rx_errors++;
+			}
 		}
 		rcu_read_unlock();
 		return 0;
@@ -262,17 +273,21 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 		/* place it back on the queue to be handled by true layer 3 protocols.
 		 */
 
-		/* See if we are configured to re-write the VLAN header
-		 * to make it look like ethernet...
-		 */
-		skb = vlan_check_reorder_header(skb);
-
-		/* Can be null if skb-clone fails when re-ordering */
-		if (skb) {
+		if (vid == 0) {
 			netif_rx(skb);
 		} else {
-			/* TODO:  Add a more specific counter here. */
-			stats->rx_errors++;
+			/* See if we are configured to re-write the VLAN header
+			 * to make it look like ethernet...
+			 */
+			skb = vlan_check_reorder_header(skb);
+
+			/* Can be null if skb-clone fails when re-ordering */
+			if (skb) {
+				netif_rx(skb);
+			} else {
+				/* TODO:  Add a more specific counter here. */
+				stats->rx_errors++;
+			}
 		}
 		rcu_read_unlock();
 		return 0;
@@ -285,17 +300,21 @@ int vlan_skb_recv(struct sk_buff *skb, struct net_device *dev,
 	/* place it back on the queue to be handled by upper layer protocols.
 	 */
 
-	/* See if we are configured to re-write the VLAN header
-	 * to make it look like ethernet...
-	 */
-	skb = vlan_check_reorder_header(skb);
-
-	/* Can be null if skb-clone fails when re-ordering */
-	if (skb) {
+	if (vid == 0) {
 		netif_rx(skb);
 	} else {
-		/* TODO:  Add a more specific counter here. */
-		stats->rx_errors++;
+		/* See if we are configured to re-write the VLAN header
+		 * to make it look like ethernet...
+		 */
+		skb = vlan_check_reorder_header(skb);
+
+		/* Can be null if skb-clone fails when re-ordering */
+		if (skb) {
+			netif_rx(skb);
+		} else {
+			/* TODO:  Add a more specific counter here. */
+			stats->rx_errors++;
+		}
 	}
 	rcu_read_unlock();
 	return 0;

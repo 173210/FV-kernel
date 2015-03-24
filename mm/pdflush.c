@@ -57,6 +57,13 @@ static DEFINE_SPINLOCK(pdflush_lock);
  */
 int nr_pdflush_threads = 0;
 
+#ifdef CONFIG_PDFLUSH_RTSCHED
+/*
+ * Writable by sysctl, Published to userspace at /proc/sys/vm/prio_pdflush_thread.
+ */
+int prio_pdflush_thread = 0;
+#endif
+
 /*
  * The time at which the pdflush thread pool last went empty
  */
@@ -177,7 +184,17 @@ static int pdflush(void *dummy)
 	 * pdflush can spend a lot of time doing encryption via dm-crypt.  We
 	 * don't want to do that at keventd's priority.
 	 */
+#ifdef CONFIG_PDFLUSH_RTSCHED
+	if ( (prio_pdflush_thread > 0) && (prio_pdflush_thread < MAX_RT_PRIO) ) {
+		struct sched_param param = {
+			.sched_priority = prio_pdflush_thread
+		};
+		sched_setscheduler(current, SCHED_FIFO, &param);
+	} else
+		set_user_nice(current, 0);
+#else
 	set_user_nice(current, 0);
+#endif
 
 	/*
 	 * Some configs put our parent kthread in a limited cpuset,

@@ -390,6 +390,10 @@ config MTD_OCELOT
 	  NVRAM on the Momenco Ocelot board. If you have one of these boards
 	  and would like access to either of these, say 'Y'.
 
+config MTD_TXBOARD
+	tristate "Flash chip mapping on TX board"
+	depends on MIPS && TX_BOARDS && (MTD_CFI || MTD_JEDECPROBE)
+
 config MTD_SOLUTIONENGINE
 	tristate "CFI Flash device mapped on Hitachi SolutionEngine"
 	depends on SUPERH && MTD_CFI && MTD_REDBOOT_PARTS

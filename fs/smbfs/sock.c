@@ -330,7 +330,8 @@ smb_receive(struct smb_sb_info *server, struct smb_request *req)
 	msg.msg_control = NULL;
 
 	/* Dont repeat bytes and count available bufferspace */
-	rlen = smb_move_iov(&p, &num, iov, req->rq_bytes_recvd);
+	rlen = min_t(int, smb_move_iov(&p, &num, iov, req->rq_bytes_recvd),
+		     (req->rq_rlen - req->rq_bytes_recvd));
 	if (req->rq_rlen < rlen)
 		rlen = req->rq_rlen;
 

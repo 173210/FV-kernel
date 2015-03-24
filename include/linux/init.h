@@ -295,4 +295,11 @@ void __init parse_early_param(void);
 #define __exit_p(x) NULL
 #endif
 
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#ifndef __ASSEMBLY__
+#include "kmc.h"
+#endif /* __ASSEMBLY__ */
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */
 #endif /* _LINUX_INIT_H */

@@ -967,6 +967,7 @@ long do_sys_open(int dfd, const char __user *filename, int flags, int mode)
 				fsnotify_open(f->f_path.dentry);
 				fd_install(fd, f);
 			}
+			MARK(fs_open, "%d %s", fd, tmp);
 		}
 		putname(tmp);
 	}
@@ -1057,6 +1058,7 @@ asmlinkage long sys_close(unsigned int fd)
 	filp = fdt->fd[fd];
 	if (!filp)
 		goto out_unlock;
+	MARK(fs_close, "%u", fd);
 	rcu_assign_pointer(fdt->fd[fd], NULL);
 	FD_CLR(fd, fdt->close_on_exec);
 	__put_unused_fd(files, fd);

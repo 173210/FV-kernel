@@ -387,6 +387,12 @@ config HOTPLUG
 	  disabling this option for embedded systems that do not use modules, a
 	  dynamic /dev tree, or dynamic device discovery.  Just say Y.
 
+config UEVENT_HELPER_DEFAULT_PATH
+	string "Userspace Event Helper path" if EMBEDDED
+	depends on HOTPLUG
+	default "/sbin/hotplug"
+	help
+
 config PRINTK
 	default y
 	bool "Enable support for printk" if EMBEDDED
@@ -429,6 +435,11 @@ config FUTEX
 	  Disabling this option will cause the kernel to be built without
 	  support for "fast userspace mutexes".  The resulting kernel may not
 	  run glibc-based applications correctly.
+
+config FUTEX_FORCE_PRIVATE
+	bool "Force private futex support"
+	default n
+	depends on FUTEX
 
 config EPOLL
 	bool "Enable eventpoll support" if EMBEDDED
@@ -525,6 +536,12 @@ config MODULE_FORCE_UNLOAD
 	  without waiting for anyone to stop using it (using the -f option to
 	  rmmod).  This is mainly for kernel developers and desperate users.
 	  If unsure, say N.
+
+config MODULE_FORCE_LOAD
+	bool "Forced module loading"
+	depends on MODULES && EXPERIMENTAL
+	help
+	  This option allows you to force a module to load.
 
 config MODVERSIONS
 	bool "Module versioning support"

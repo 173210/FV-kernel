@@ -551,6 +551,12 @@ static int smb_recv_data(struct smb_sb_info *server, struct smb_request *req)
 	int result;
 
 	result = smb_receive(server, req);
+	if ((result == -EAGAIN) && (req->rq_bytes_recvd < req->rq_rlen)){
+		/* wait for the arrival of data */
+		printk(KERN_DEBUG "smbfs: the data dose not still arrive.\n");
+		result = 0;
+		goto out;
+	}
 	if (result < 0)
 		goto out;
 	if (req->rq_bytes_recvd < req->rq_rlen)

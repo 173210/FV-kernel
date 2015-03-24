@@ -572,6 +572,10 @@ int sock_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	struct sock_iocb siocb;
 	int ret;
 
+	MARK(net_socket_sendmsg, "%p %d %d %d %zu",
+		sock, sock->sk->sk_family, sock->sk->sk_type,
+		sock->sk->sk_protocol, size);
+
 	init_sync_kiocb(&iocb, NULL);
 	iocb.private = &siocb;
 	ret = __sock_sendmsg(&iocb, sock, msg, size);
@@ -624,7 +628,12 @@ int sock_recvmsg(struct socket *sock, struct msghdr *msg,
 	struct sock_iocb siocb;
 	int ret;
 
-	init_sync_kiocb(&iocb, NULL);
+	MARK(net_socket_recvmsg, "%p %d %d %d %zu",
+		sock, sock->sk->sk_family, sock->sk->sk_type,
+		sock->sk->sk_protocol, size);
+
+        init_sync_kiocb(&iocb, NULL);
+
 	iocb.private = &siocb;
 	ret = __sock_recvmsg(&iocb, sock, msg, size, flags);
 	if (-EIOCBQUEUED == ret)
@@ -1188,6 +1197,10 @@ asmlinkage long sys_socket(int family, int type, int protocol)
 	retval = sock_map_fd(sock);
 	if (retval < 0)
 		goto out_release;
+
+	MARK(net_socket_create, "%p %d %d %d %d",
+		sock, sock->sk->sk_family, sock->sk->sk_type,
+		sock->sk->sk_protocol, retval);
 
 out:
 	/* It may be already another descriptor 8) Not kernel problem. */
@@ -1966,6 +1979,8 @@ asmlinkage long sys_socketcall(int call, unsigned long __user *args)
 
 	a0 = a[0];
 	a1 = a[1];
+
+	MARK(net_socket_call, "%d %lu", call, a0);
 
 	switch (call) {
 	case SYS_SOCKET:

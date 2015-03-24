@@ -23,6 +23,7 @@
 #define NETLINK_GENERIC		16
 /* leave room for NETLINK_DM (DM Events) */
 #define NETLINK_SCSITRANSPORT	18	/* SCSI Transports */
+#define NETLINK_LTT		31 	/* Linux Trace Toolkit FIXME */
 
 #define MAX_LINKS 32		
 

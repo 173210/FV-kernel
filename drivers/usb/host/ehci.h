@@ -92,6 +92,7 @@ struct ehci_hcd {			/* one per controller */
 	unsigned		is_tdi_rh_tt:1;	/* TDI roothub with TT */
 	unsigned		no_selective_suspend:1;
 	unsigned		has_fsl_port_bug:1; /* FreeScale */
+	unsigned		cerr_handling_bug:1;  /* host has a bug in CERR handling. */
 
 	u8			sbrn;		/* packed release number */
 
@@ -269,6 +270,17 @@ struct ehci_regs {
 #define PORT_CSC	(1<<1)		/* connect status change */
 #define PORT_CONNECT	(1<<0)		/* device connected */
 #define PORT_RWC_BITS   (PORT_CSC | PORT_PEC | PORT_OCC)
+#ifdef CONFIG_TOSHIBA_TC90411
+	u32		reserved1 [16];
+	u32		extreg_01;
+//#define EXTREG_01_64	0x00800010
+#define EXTREG_01_64	0x00FF0010
+	u32		reserved2;
+	u32		extreg_03;
+#define EXTREG_03_64	0x00000001
+	u32		reserved3;
+	u32		reserved4;
+#endif
 } __attribute__ ((packed));
 
 /* Appendix C, Debug port ... intended for use with special "debug devices"
@@ -651,6 +663,33 @@ ehci_port_speed(struct ehci_hcd *ehci, unsigned int portsc)
 #define	ehci_has_fsl_portno_bug(e)		(0)
 #endif
 
+/*
+ * While most USB host controllers implement their registers in
+ * little-endian format, a minority (celleb companion chip) implement
+ * them in big endian format.
+ *
+ * This attempts to support either format at compile time without a
+ * runtime penalty, or both formats with the additional overhead
+ * of checking a flag bit.
+ */
+
+#ifdef CONFIG_USB_EHCI_BIG_ENDIAN_MMIO
+#define ehci_big_endian_mmio(e)		((e)->big_endian_mmio)
+#else
+#define ehci_big_endian_mmio(e)		0
+#endif
+
+static inline unsigned int ehci_readl (const struct ehci_hcd *ehci,
+				       __u32 __iomem * regs)
+{
+	return readl((__force u32 *)regs);
+}
+
+static inline void ehci_writel (const struct ehci_hcd *ehci,
+				const unsigned int val, __u32 __iomem *regs)
+{
+	writel(val, (__force u32 *)regs);
+}
 
 /*-------------------------------------------------------------------------*/
 

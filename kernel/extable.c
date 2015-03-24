@@ -51,6 +51,7 @@ int core_kernel_text(unsigned long addr)
 		return 1;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(core_kernel_text);
 
 int __kernel_text_address(unsigned long addr)
 {
@@ -58,6 +59,7 @@ int __kernel_text_address(unsigned long addr)
 		return 1;
 	return __module_text_address(addr) != NULL;
 }
+EXPORT_SYMBOL_GPL(__kernel_text_address);
 
 int kernel_text_address(unsigned long addr)
 {
@@ -65,3 +67,4 @@ int kernel_text_address(unsigned long addr)
 		return 1;
 	return module_text_address(addr) != NULL;
 }
+EXPORT_SYMBOL_GPL(kernel_text_address);

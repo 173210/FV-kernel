@@ -16,6 +16,18 @@
 #include <asm/cache.h>
 #include <asm/io.h>
 
+#ifdef CONFIG_PCIMEM_PHYSOFFSET
+static dma_addr_t pcimem_default(struct device *dev, dma_addr_t addr)
+{
+	return addr;
+}
+dma_addr_t (*pcimem_busm2pcim)(struct device *dev, dma_addr_t addr) = pcimem_default;
+dma_addr_t (*pcimem_pcim2busm)(struct device *dev, dma_addr_t addr) = pcimem_default;
+#else
+#define pcimem_busm2pcim(dev, a) (a)
+#define pcimem_pcim2busm(dev, a) (a)
+#endif
+
 /*
  * Warning on the terminology - Linux calls an uncached area coherent;
  * MIPS terminology calls memory areas with hardware maintained coherency
@@ -35,7 +47,7 @@ void *dma_alloc_noncoherent(struct device *dev, size_t size,
 
 	if (ret != NULL) {
 		memset(ret, 0, size);
-		*dma_handle = virt_to_phys(ret);
+		*dma_handle = pcimem_busm2pcim(dev, virt_to_phys(ret));
 	}
 
 	return ret;
@@ -106,7 +118,7 @@ dma_addr_t dma_map_single(struct device *dev, void *ptr, size_t size,
 
 	__dma_sync(addr, size, direction);
 
-	return virt_to_phys(ptr);
+	return pcimem_busm2pcim(dev, virt_to_phys(ptr));
 }
 
 EXPORT_SYMBOL(dma_map_single);
@@ -115,7 +127,7 @@ void dma_unmap_single(struct device *dev, dma_addr_t dma_addr, size_t size,
 	enum dma_data_direction direction)
 {
 	unsigned long addr;
-	addr = dma_addr + PAGE_OFFSET;
+	addr = pcimem_pcim2busm(dev, dma_addr) + PAGE_OFFSET;
 
 	//__dma_sync(addr, size, direction);
 }
@@ -135,8 +147,9 @@ int dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 		addr = (unsigned long) page_address(sg->page);
 		if (addr) {
 			__dma_sync(addr + sg->offset, sg->length, direction);
-			sg->dma_address = (dma_addr_t)page_to_phys(sg->page)
-					  + sg->offset;
+			sg->dma_address = pcimem_busm2pcim(dev,
+							   (dma_addr_t)page_to_phys(sg->page)
+							   + sg->offset);
 		}
 	}
 
@@ -155,7 +168,7 @@ dma_addr_t dma_map_page(struct device *dev, struct page *page,
 	addr = (unsigned long) page_address(page) + offset;
 	dma_cache_wback_inv(addr, size);
 
-	return page_to_phys(page) + offset;
+	return pcimem_busm2pcim(dev, page_to_phys(page) + offset);
 }
 
 EXPORT_SYMBOL(dma_map_page);
@@ -168,7 +181,7 @@ void dma_unmap_page(struct device *dev, dma_addr_t dma_address, size_t size,
 	if (direction != DMA_TO_DEVICE) {
 		unsigned long addr;
 
-		addr = dma_address + PAGE_OFFSET;
+		addr = pcimem_pcim2busm(dev, dma_address) + PAGE_OFFSET;
 		dma_cache_wback_inv(addr, size);
 	}
 }
@@ -198,12 +211,7 @@ EXPORT_SYMBOL(dma_unmap_sg);
 void dma_sync_single_for_cpu(struct device *dev, dma_addr_t dma_handle,
 	size_t size, enum dma_data_direction direction)
 {
-	unsigned long addr;
-
 	BUG_ON(direction == DMA_NONE);
-
-	addr = dma_handle + PAGE_OFFSET;
-	__dma_sync(addr, size, direction);
 }
 
 EXPORT_SYMBOL(dma_sync_single_for_cpu);
@@ -215,7 +223,7 @@ void dma_sync_single_for_device(struct device *dev, dma_addr_t dma_handle,
 
 	BUG_ON(direction == DMA_NONE);
 
-	addr = dma_handle + PAGE_OFFSET;
+	addr = pcimem_pcim2busm(dev, dma_handle) + PAGE_OFFSET;
 	__dma_sync(addr, size, direction);
 }
 
@@ -224,12 +232,7 @@ EXPORT_SYMBOL(dma_sync_single_for_device);
 void dma_sync_single_range_for_cpu(struct device *dev, dma_addr_t dma_handle,
 	unsigned long offset, size_t size, enum dma_data_direction direction)
 {
-	unsigned long addr;
-
 	BUG_ON(direction == DMA_NONE);
-
-	addr = dma_handle + offset + PAGE_OFFSET;
-	__dma_sync(addr, size, direction);
 }
 
 EXPORT_SYMBOL(dma_sync_single_range_for_cpu);
@@ -241,7 +244,7 @@ void dma_sync_single_range_for_device(struct device *dev, dma_addr_t dma_handle,
 
 	BUG_ON(direction == DMA_NONE);
 
-	addr = dma_handle + offset + PAGE_OFFSET;
+	addr = pcimem_pcim2busm(dev, dma_handle + offset) + PAGE_OFFSET;
 	__dma_sync(addr, size, direction);
 }
 
@@ -250,14 +253,7 @@ EXPORT_SYMBOL(dma_sync_single_range_for_device);
 void dma_sync_sg_for_cpu(struct device *dev, struct scatterlist *sg, int nelems,
 	enum dma_data_direction direction)
 {
-	int i;
-
 	BUG_ON(direction == DMA_NONE);
-
-	/* Make sure that gcc doesn't leave the empty loop body.  */
-	for (i = 0; i < nelems; i++, sg++)
-		__dma_sync((unsigned long)page_address(sg->page),
-		           sg->length, direction);
 }
 
 EXPORT_SYMBOL(dma_sync_sg_for_cpu);
@@ -326,7 +322,7 @@ EXPORT_SYMBOL(dma_cache_sync);
 dma64_addr_t pci_dac_page_to_dma(struct pci_dev *pdev,
 	struct page *page, unsigned long offset, int direction)
 {
-	return (dma64_addr_t)page_to_phys(page) + offset;
+	return pcimem_busm2pcim(&pdev->dev, (dma64_addr_t)page_to_phys(page) + offset);
 }
 
 EXPORT_SYMBOL(pci_dac_page_to_dma);
@@ -351,8 +347,6 @@ void pci_dac_dma_sync_single_for_cpu(struct pci_dev *pdev,
 	dma64_addr_t dma_addr, size_t len, int direction)
 {
 	BUG_ON(direction == PCI_DMA_NONE);
-
-	dma_cache_wback_inv(dma_addr + PAGE_OFFSET, len);
 }
 
 EXPORT_SYMBOL(pci_dac_dma_sync_single_for_cpu);
@@ -362,7 +356,7 @@ void pci_dac_dma_sync_single_for_device(struct pci_dev *pdev,
 {
 	BUG_ON(direction == PCI_DMA_NONE);
 
-	dma_cache_wback_inv(dma_addr + PAGE_OFFSET, len);
+	dma_cache_wback_inv(pcimem_pcim2busm(&pdev->dev, dma_addr) + PAGE_OFFSET, len);
 }
 
 EXPORT_SYMBOL(pci_dac_dma_sync_single_for_device);

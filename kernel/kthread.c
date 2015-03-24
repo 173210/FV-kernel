@@ -226,6 +226,8 @@ int kthread_stop(struct task_struct *k)
 	/* It could exit after stop_info.k set, but before wake_up_process. */
 	get_task_struct(k);
 
+	MARK(kernel_kthread_stop, "%d", k->pid);
+
 	/* Must init completion *before* thread sees kthread_stop_info.k */
 	init_completion(&kthread_stop_info.done);
 	smp_wmb();
@@ -240,6 +242,8 @@ int kthread_stop(struct task_struct *k)
 	kthread_stop_info.k = NULL;
 	ret = kthread_stop_info.err;
 	mutex_unlock(&kthread_stop_lock);
+
+	MARK(kernel_kthread_stop_ret, "%d", ret);
 
 	return ret;
 }

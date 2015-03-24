@@ -59,6 +59,10 @@
 
 #define RX_OFFSET	2
 
+#ifdef CONFIG_TOSHIBA_TC90412
+#define USE_BRIDGE_CACHE  /* for TXMBR cache */
+#endif
+
 /* Updated to recommendations in pci-skeleton v2.03. */
 
 /* The user-configurable values.
@@ -803,6 +807,9 @@ static int __devinit natsemi_probe1 (struct pci_dev *pdev,
 	np->iosize = iosize;
 	spin_lock_init(&np->lock);
 	np->msg_enable = (debug >= 0) ? (1<<debug)-1 : NATSEMI_DEF_MSG;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	np->msg_enable &= ~NETIF_MSG_LINK; /* hack for netconsole deadlock */
+#endif
 	np->hands_off = 0;
 	np->intr_status = 0;
 	np->eeprom_size = natsemi_pci_info[chip_idx].eeprom_size;
@@ -1859,6 +1866,9 @@ static void refill_rx(struct net_device *dev)
 		}
 		np->rx_ring[entry].cmd_status = cpu_to_le32(np->rx_buf_sz);
 	}
+#ifdef USE_BRIDGE_CACHE
+	wmb();
+#endif
 	if (np->cur_rx - np->dirty_rx == RX_RING_SIZE) {
 		if (netif_msg_rx_err(np))
 			printk(KERN_WARNING "%s: going OOM.\n", dev->name);
@@ -2000,6 +2010,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 	struct netdev_private *np = netdev_priv(dev);
 	void __iomem * ioaddr = ns_ioaddr(dev);
 	unsigned entry;
+	unsigned long flags;
 
 	/* Note: Ordering is important here, set the field with the
 	   "ownership" bit last, and only then increment cur_tx. */
@@ -2013,7 +2024,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 
 	np->tx_ring[entry].addr = cpu_to_le32(np->tx_dma[entry]);
 
-	spin_lock_irq(&np->lock);
+	spin_lock_irqsave(&np->lock, flags);
 
 	if (!np->hands_off) {
 		np->tx_ring[entry].cmd_status = cpu_to_le32(DescOwn | skb->len);
@@ -2032,7 +2043,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 		dev_kfree_skb_irq(skb);
 		np->stats.tx_dropped++;
 	}
-	spin_unlock_irq(&np->lock);
+	spin_unlock_irqrestore(&np->lock, flags);
 
 	dev->trans_start = jiffies;
 
@@ -2094,11 +2105,16 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 	struct netdev_private *np = netdev_priv(dev);
 	void __iomem * ioaddr = ns_ioaddr(dev);
 
-	if (np->hands_off)
+	/* Reading IntrStatus automatically acknowledges so don't do
+	 * that while interrupts are disabled, (for example, while a
+	 * poll is scheduled).  */
+	if (np->hands_off || !readl(ioaddr + IntrEnable))
 		return IRQ_NONE;
 
-	/* Reading automatically acknowledges. */
 	np->intr_status = readl(ioaddr + IntrStatus);
+
+	if (!np->intr_status)
+		return IRQ_NONE;
 
 	if (netif_msg_intr(np))
 		printk(KERN_DEBUG
@@ -2106,16 +2122,18 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 		       dev->name, np->intr_status,
 		       readl(ioaddr + IntrMask));
 
-	if (!np->intr_status)
-		return IRQ_NONE;
-
 	prefetch(&np->rx_skbuff[np->cur_rx % RX_RING_SIZE]);
 
 	if (netif_rx_schedule_prep(dev)) {
 		/* Disable interrupts and register for poll */
 		natsemi_irq_disable(dev);
 		__netif_rx_schedule(dev);
-	}
+	} else
+		printk(KERN_WARNING
+	       	       "%s: Ignoring interrupt, status %#08x, mask %#08x.\n",
+		       dev->name, np->intr_status,
+		       readl(ioaddr + IntrMask));
+
 	return IRQ_HANDLED;
 }
 
@@ -2131,6 +2149,20 @@ static int natsemi_poll(struct net_device *dev, int *budget)
 	int work_done = 0;
 
 	do {
+		if (netif_msg_intr(np))
+			printk(KERN_DEBUG
+			       "%s: Poll, status %#08x, mask %#08x.\n",
+			       dev->name, np->intr_status,
+			       readl(ioaddr + IntrMask));
+
+		/* netdev_rx() may read IntrStatus again if the RX state
+		 * machine falls over so do it first. */
+		if (np->intr_status &
+		    (IntrRxDone | IntrRxIntr | RxStatusFIFOOver |
+		     IntrRxErr | IntrRxOverrun)) {
+			netdev_rx(dev, &work_done, work_to_do);
+		}
+
 		if (np->intr_status &
 		    (IntrTxDone | IntrTxIntr | IntrTxIdle | IntrTxErr)) {
 			spin_lock(&np->lock);
@@ -2141,12 +2173,6 @@ static int natsemi_poll(struct net_device *dev, int *budget)
 		/* Abnormal error summary/uncommon events handlers. */
 		if (np->intr_status & IntrAbnormalSummary)
 			netdev_error(dev, np->intr_status);
-
-		if (np->intr_status &
-		    (IntrRxDone | IntrRxIntr | RxStatusFIFOOver |
-		     IntrRxErr | IntrRxOverrun)) {
-			netdev_rx(dev, &work_done, work_to_do);
-		}
 
 		*budget -= work_done;
 		dev->quota -= work_done;
@@ -2198,6 +2224,8 @@ static void netdev_rx(struct net_device *dev, int *work_done, int work_to_do)
 		pkt_len = (desc_status & DescSizeMask) - 4;
 		if ((desc_status&(DescMore|DescPktOK|DescRxLong)) != DescPktOK){
 			if (desc_status & DescMore) {
+				unsigned long flags;
+
 				if (netif_msg_rx_err(np))
 					printk(KERN_WARNING
 						"%s: Oversized(?) Ethernet "
@@ -2212,12 +2240,12 @@ static void netdev_rx(struct net_device *dev, int *work_done, int work_to_do)
 				 * reset procedure documented in
 				 * AN-1287. */
 
-				spin_lock_irq(&np->lock);
+				spin_lock_irqsave(&np->lock, flags);
 				reset_rx(dev);
 				reinit_rx(dev);
 				writel(np->ring_dma, ioaddr + RxRingPtr);
 				check_link(dev);
-				spin_unlock_irq(&np->lock);
+				spin_unlock_irqrestore(&np->lock, flags);
 
 				/* We'll enable RX on exit from this
 				 * function. */
@@ -2275,6 +2303,9 @@ static void netdev_rx(struct net_device *dev, int *work_done, int work_to_do)
 		}
 		entry = (++np->cur_rx) % RX_RING_SIZE;
 		np->rx_head_desc = &np->rx_ring[entry];
+#ifdef USE_BRIDGE_CACHE
+		rmb();
+#endif
 		desc_status = le32_to_cpu(np->rx_head_desc->cmd_status);
 	}
 	refill_rx(dev);
@@ -3149,6 +3180,7 @@ static int natsemi_suspend (struct pci_dev *pdev, pm_message_t state)
 	void __iomem * ioaddr = ns_ioaddr(dev);
 
 	rtnl_lock();
+	pci_save_state (pdev);
 	if (netif_running (dev)) {
 		del_timer_sync(&np->timer);
 
@@ -3186,6 +3218,7 @@ static int natsemi_suspend (struct pci_dev *pdev, pm_message_t state)
 		}
 	}
 	netif_device_detach(dev);
+	pci_set_power_state (pdev, 3);
 	rtnl_unlock();
 	return 0;
 }
@@ -3197,9 +3230,13 @@ static int natsemi_resume (struct pci_dev *pdev)
 	struct netdev_private *np = netdev_priv(dev);
 
 	rtnl_lock();
+	pci_restore_state (pdev);
 	if (netif_device_present(dev))
 		goto out;
 	if (netif_running(dev)) {
+		int i;
+		void __iomem *ioaddr = ns_ioaddr(dev);
+
 		BUG_ON(!np->hands_off);
 		pci_enable_device(pdev);
 	/*	pci_power_on(pdev); */
@@ -3210,6 +3247,14 @@ static int natsemi_resume (struct pci_dev *pdev)
 		spin_lock_irq(&np->lock);
 		np->hands_off = 0;
 		init_registers(dev);
+		/* now set the MAC address according to dev->dev_addr */
+		for (i = 0; i < 3; i++) {
+			u16 mac = (dev->dev_addr[2*i+1]<<8) + dev->dev_addr[2*i];
+
+			writel(i*2, ioaddr + RxFilterAddr);
+			writew(mac, ioaddr + RxFilterData);
+		}
+		writel(np->cur_rx_mode, ioaddr + RxFilterAddr);
 		netif_device_attach(dev);
 		spin_unlock_irq(&np->lock);
 		enable_irq(dev->irq);
@@ -3219,6 +3264,7 @@ static int natsemi_resume (struct pci_dev *pdev)
 	netif_device_attach(dev);
 	netif_poll_enable(dev);
 out:
+	pci_set_power_state (pdev, 0);
 	rtnl_unlock();
 	return 0;
 }

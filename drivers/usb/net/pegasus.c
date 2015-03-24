@@ -51,6 +51,9 @@
 
 static const char driver_name[] = "pegasus";
 
+/* Workaround */
+#define PEGASUS_WORKAROUND_NO_INTERRUPT
+
 #undef	PEGASUS_WRITE_EEPROM
 #define	BMSR_MEDIA	(BMSR_10HALF | BMSR_10FULL | BMSR_100HALF | \
 			BMSR_100FULL | BMSR_ANEGCAPABLE)
@@ -942,6 +945,10 @@ static inline void get_interrupt_interval(pegasus_t * pegasus)
 #endif
 		}
 	}
+#if 1	/* Fix interval value for high speed */
+	else
+		data[1] = ffs(data[1]);
+#endif
 	pegasus->intr_interval = data[1];
 }
 
@@ -1030,6 +1037,7 @@ static int pegasus_open(struct net_device *net)
 		goto exit;
 	}
 
+#ifndef PEGASUS_WORKAROUND_NO_INTERRUPT
 	usb_fill_int_urb(pegasus->intr_urb, pegasus->usb,
 			 usb_rcvintpipe(pegasus->usb, 3),
 			 pegasus->intr_buff, sizeof (pegasus->intr_buff),
@@ -1042,6 +1050,7 @@ static int pegasus_open(struct net_device *net)
 		usb_kill_urb(pegasus->rx_urb);
 		goto exit;
 	}
+#endif
 	if ((res = enable_net_traffic(net, pegasus->usb))) {
 		if (netif_msg_ifup(pegasus))
 			pr_debug("%s: can't enable_net_traffic() - %d\n",

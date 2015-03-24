@@ -154,6 +154,23 @@ NESTED(kernel_entry, 16, sp)			# kernel entry point
 
 	setup_c0_status_pri
 
+#ifdef CONFIG_XIP_KERNEL
+	/*
+	 * For xip from rom, copy initialized data from end of text
+	 * in rom to _fdata though _edata in ram.
+	 */
+	la	s0, _etext
+	la	s1, _fdata
+	la	s2, _edata
+1:
+	lw	t0, (s0)
+	sw	t0, (s1)
+	addi	s1, 4
+	addi	s0, 4
+	bne	s1, s2, 1b
+
+#endif
+
 	ARC64_TWIDDLE_PC
 
 #ifdef CONFIG_MIPS_MT_SMTC

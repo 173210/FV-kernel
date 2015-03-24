@@ -1316,6 +1316,17 @@ config JFFS2_FS_SECURITY
 	  If you are not using a security module that requires using
 	  extended attributes for file security labels, say N.
 
+config JFFS2_WRITE_PAGE_ONE_BLOCK
+	bool "JFFS2 writes a page into one block."
+	depends on JFFS2_FS
+	default n
+	help
+	  On tail of block, a page is divided to 2 parts and compressed
+	  and written into different blocks.
+	  If y, do not divide a page and write into only one block.
+
+	  If unsure, you should _definitely_ say 'N'.
+
 config JFFS2_COMPRESSION_OPTIONS
 	bool "Advanced compression options for JFFS2"
 	depends on JFFS2_FS
@@ -1384,6 +1395,9 @@ config JFFS2_CMODE_SIZE
 
 endchoice
 
+# UBIFS File system configuration
+source "fs/ubifs/Kconfig"
+
 config CRAMFS
 	tristate "Compressed ROM file system support (cramfs)"
 	depends on BLOCK
@@ -1403,6 +1417,175 @@ config CRAMFS
 	  directory /) cannot be compiled as a module.
 
 	  If unsure, say N.
+
+config CRAMFS_EXPAND_SIZE
+	bool "Use Expand size"
+	depends on CRAMFS
+	help
+	  If unsure, say N.
+
+config CRAMFS_SIZE_WIDTH
+	int "CramFs size width"
+	depends on CRAMFS && CRAMFS_EXPAND_SIZE
+	default "24"
+	help
+	  If unsure, say 24.
+
+config CRAMFS_LINEAR
+	bool "Use linear addressing for cramfs"
+	depends on CRAMFS
+	help
+	  This option tells the CramFs driver to load data directly from
+	  a linear adressed memory range (usually non volatile memory
+	  like flash) instead of going through the block device layer.
+	  This saves some memory since no intermediate buffering is
+	  necessary.
+
+	  This is also a prerequisite for XIP of binaries stored on the
+	  filesystem.
+
+	  The location of the CramFs image in memory is board
+	  dependent. Therefore, if you say Y, you must know the proper
+	  physical address where to store the CramFs image and specify
+	  it using the physaddr=0x******** mount option (for example:
+	  "mount -t cramfs -o physaddr=0x100000 none /mnt").
+
+	  If unsure, say N.
+
+config CRAMFS_LINEAR_ONLY
+	bool "Use only linear cramfs"
+	depends on CRAMFS_LINEAR
+	help
+	  Say Y if you want to use only linear cramfs.
+
+config CRAMFS_LINEAR_XIP
+	bool "Support XIP on linear cramfs"
+	depends on CRAMFS_LINEAR
+	help
+	  You must say Y to this option if you want to be able to run
+	  applications directly from non-volatile memory.  XIP
+	  applications are marked by setting the sticky bit (ie, "chmod
+	  +t <app name>").  A CramFs file system then needs to be
+	  created using mkcramfs (with XIP CramFs support in
+	  it). Applications marked for XIP execution will not be
+	  compressed since they have to run directly from flash.
+
+config ROOT_CRAMFS_LINEAR
+	bool "Root file system on linear cramfs"
+	depends on CRAMFS_LINEAR
+	help
+	  Say Y if you have enabled linear cramfs, and you want to be
+	  able to use the linear CramFs image as a root file system.  To
+	  actually have the kernel mount this CramFs image as a root
+	  file system, you must also pass the command line parameter
+	  "root=/dev/null rootflags=physaddr=0x********" to the kernel
+	  (replace 0x******** with the physical address location of the
+	  linear CramFs image to boot with).
+
+config SQUASHFS
+	tristate "SquashFS 3.2 - Squashed file system support"
+	select ZLIB_INFLATE
+	help
+	  Saying Y here includes support for SquashFS 3.2 (a Compressed Read-Only File
+	  System).  Squashfs is a highly compressed read-only filesystem for Linux.
+	  It uses zlib compression to compress both files, inodes and directories.
+	  Inodes in the system are very small and all blocks are packed to minimise
+	  data overhead. Block sizes greater than 4K are supported up to a maximum of 64K.
+	  SquashFS 3.1 supports 64 bit filesystems and files (larger than 4GB), full
+	  uid/gid information, hard links and timestamps.
+
+	  Squashfs is intended for general read-only filesystem use, for archival
+	  use (i.e. in cases where a .tar.gz file may be used), and in embedded
+	  systems where low overhead is needed.  Further information and filesystem tools
+	  are available from http://squashfs.sourceforge.net.
+
+	  If you want to compile this as a module ( = code which can be
+	  inserted in and removed from the running kernel whenever you want),
+	  say M here and read <file:Documentation/modules.txt>.  The module
+	  will be called squashfs.  Note that the root file system (the one
+	  containing the directory /) cannot be compiled as a module.
+
+	  If unsure, say N.
+
+config SQUASHFS_EMBEDDED
+
+	bool "Additional options for memory-constrained systems" 
+	depends on SQUASHFS
+	default n
+	help
+	  Saying Y here allows you to specify cache sizes and how Squashfs
+	  allocates memory.  This is only intended for memory constrained
+	  systems.
+
+	  If unsure, say N.
+
+config SQUASHFS_FRAGMENT_CACHE_SIZE
+	int "Number of fragments cached" if SQUASHFS_EMBEDDED
+	depends on SQUASHFS
+	default "3"
+	help
+	  By default SquashFS caches the last 3 fragments read from
+	  the filesystem.  Increasing this amount may mean SquashFS
+	  has to re-read fragments less often from disk, at the expense
+	  of extra system memory.  Decreasing this amount will mean
+	  SquashFS uses less memory at the expense of extra reads from disk.
+
+	  Note there must be at least one cached fragment.  Anything
+	  much more than three will probably not make much difference.
+
+config SQUASHFS_VMALLOC
+	bool "Use Vmalloc rather than Kmalloc" if SQUASHFS_EMBEDDED
+	depends on SQUASHFS
+	default n
+	help
+	  By default SquashFS uses kmalloc to obtain fragment cache memory.
+	  Kmalloc memory is the standard kernel allocator, but it can fail
+	  on memory constrained systems.  Because of the way Vmalloc works,
+	  Vmalloc can succeed when kmalloc fails.  Specifying this option
+	  will make SquashFS always use Vmalloc to allocate the
+	  fragment cache memory.
+
+	  If unsure, say N.
+
+config SQUASHFS_LINEAR
+	bool "Use linear addressing for SquashFS"
+	depends on SQUASHFS
+	help
+	  This option tells the SquashFS driver to load data directly from
+	  a linear adressed memory range (usually non volatile memory
+	  like flash) instead of going through the block device layer.
+	  This saves some memory since no intermediate buffering is
+	  necessary.
+
+	  The location of the SquashFs image in memory is board
+	  dependent. Therefore, if you say Y, you must know the proper
+	  physical address where to store the SquashFS image and specify
+	  it using the physaddr=0x******** mount option (for example:
+	  "mount -t squashfs_linear -o physaddr=0x100000 none /mnt").
+
+	  If unsure, say N.
+
+config SQUASHFS_DISABLE_READAHEAD
+	bool "Force readahead to be disabled"
+	depends on SQUASHFS
+	default n
+	help
+	  This option set the readahead page number (ra_pages) in backing dev info
+	  to be zero.
+
+	  If unsure, say N.
+
+config ROOT_SQUASHFS_LINEAR
+	bool "Root file system on linear SquashFS"
+	depends on SQUASHFS_LINEAR
+	help
+	  Say Y if you have enabled linear SquashFS, and you want to be
+	  able to use the linear SquashFS image as a root file system.  To
+	  actually have the kernel mount this SquashFS image as a root
+	  file system, you must also pass the command line parameter
+	  "root=/dev/null rootflags=physaddr=0x********" to the kernel
+	  (replace 0x******** with the physical address location of the
+	  linear SquashFS image to boot with).
 
 config VXFS_FS
 	tristate "FreeVxFS file system support (VERITAS VxFS(TM) compatible)"
@@ -1436,6 +1619,43 @@ config HPFS_FS
 
 	  To compile this file system support as a module, choose M here: the
 	  module will be called hpfs.  If unsure, say N.
+
+
+
+config PRAMFS
+	tristate "Persistent and Protected RAM file system support"
+	help
+	   If your system has a block of fast (comparable in access speed to
+	   system memory) and non-volatile RAM and you wish to mount a
+	   light-weight, full-featured, and space-efficient filesystem over it,
+	   say Y here, and read <file:Documentation/filesystems/pramfs.txt>.
+
+	   To compile this as a module,  choose M here: the module will be
+	   called pramfs.
+
+config PRAMFS_NOWP
+	bool "Disable PRAMFS write protection (default is enabled)"
+	depends on PRAMFS
+	help
+	   Say Y here to disable the write protect feature of PRAMFS.
+
+config ROOT_PRAMFS
+	bool "Root file system on PRAMFS"
+	depends on PRAMFS
+	help
+	  Say Y if you have enabled PRAMFS, and you want to be
+	  able to use PRAMFS as the root filesystem.  To actually
+	  have the kernel mount PRAMFS as a root file system, you
+	  must also pass the command line parameter
+	  "root=/dev/null rootflags=physaddr=0x********" to the kernel
+	  (replace 0x******** with the physical address location of the
+	  previously initialized PRAMFS memory to boot with).
+
+config PRAMFS_MMAPWRITE
+	bool "Enable writing via mmap"
+	depends on PRAMFS && EXPERIMENTAL
+	help
+	  Say Y here to enable writing via mmap of PRAMFS.  If unsure, say N.
 
 
 

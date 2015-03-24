@@ -29,6 +29,12 @@
 #include <asm/setup.h>
 #include <asm/system.h>
 
+#ifdef CONFIG_ENABLE_INITRD_BY_LOADFROM
+int enable_initrd;
+#else
+int enable_initrd = 1;
+#endif
+
 struct cpuinfo_mips cpu_data[NR_CPUS] __read_mostly;
 
 EXPORT_SYMBOL(cpu_data);
@@ -64,7 +70,11 @@ static char command_line[CL_SIZE];
  * mips_io_port_base is the begin of the address space to which x86 style
  * I/O ports are mapped.
  */
+#ifdef CONFIG_XIP_KERNEL
+unsigned long mips_io_port_base __read_mostly = -1;
+#else
 const unsigned long mips_io_port_base __read_mostly = -1;
+#endif
 EXPORT_SYMBOL(mips_io_port_base);
 
 /*
@@ -243,6 +253,75 @@ disable:
 	initrd_end = 0;
 }
 
+#elif defined(CONFIG_ROOT_CRAMFS_LINEAR) || defined(CONFIG_ROOT_SQUASHFS_LINEAR)
+
+static unsigned long linear_start, linear_end;
+static int __init linear_start_early(char *p)
+{
+	unsigned long start = memparse(p, &p);
+	linear_start = start;
+	linear_end += start;
+	return 0;
+}
+early_param("rd_start", linear_start_early);
+static int __init linear_size_early(char *p)
+{
+	linear_end += memparse(p, &p);
+	return 0;
+}
+early_param("rd_size", linear_size_early);
+static unsigned long __init init_initrd(void)
+{
+	if (enable_initrd && linear_start && linear_end > linear_start) {
+		if (linear_start & ~PAGE_MASK) {
+			printk(KERN_ERR "linear start must be page aligned\n");
+			goto disable;
+		}
+		if (linear_start < PAGE_OFFSET) {
+			printk(KERN_ERR "linear start < PAGE_OFFSET\n");
+			goto disable;
+		}
+		ROOT_DEV = Root_RAM0;
+		return PFN_UP(__pa(linear_end));
+	}
+disable:
+	linear_start = 0;
+	linear_end = 0;
+	return 0;
+}
+static void __init finalize_initrd(void)
+{
+	unsigned long size = linear_end - linear_start;
+	char *start_str;
+
+	if (size == 0) {
+		printk(KERN_INFO "Linear fsimage not found or empty\n");
+		return;
+	}
+	if (__pa(linear_end) > PFN_PHYS(max_low_pfn)) {
+		printk("Linear fsimage extends beyond end of memory\n");
+		return;
+	}
+
+	reserve_bootmem(__pa(linear_start), size);
+
+	printk(KERN_INFO "Linear fsimage at: 0x%lx (%lu bytes)\n",
+	       linear_start, size);
+	start_str = strstr(command_line, "rootflags=");
+	if (!start_str ||
+	    (start_str != command_line && *(start_str - 1) != ' ')) {
+		/* no rootflags specified. */
+		char tmpstr[64];
+		sprintf(tmpstr, " rootflags=physaddr=0x%lx",
+			__pa(linear_start));
+		if (strlen(command_line) + strlen(tmpstr) <
+		    sizeof(command_line))
+			strcat(command_line, tmpstr);
+		else
+			printk(KERN_ERR "command_line overflow\n");
+	}
+}
+
 #else  /* !CONFIG_BLK_DEV_INITRD */
 
 static unsigned long __init init_initrd(void)
@@ -254,6 +333,63 @@ static unsigned long __init init_initrd(void)
 
 #endif
 
+#if defined(CONFIG_TX_BOARDS)
+static unsigned long reservemem_start, reservemem_size;
+static int __init early_parse_reservemem(char *p)
+{
+	reservemem_size = memparse(p, &p);
+	if (*p == '@') {
+		unsigned long end;
+		reservemem_start = memparse(p + 1, &p);
+		end = reservemem_start + reservemem_size;
+		end = PFN_ALIGN(end);
+		reservemem_start &= PAGE_MASK;
+		reservemem_size = end - reservemem_start;
+	} else
+		reservemem_size = 0;
+	return 0;
+}
+early_param("reservemem", early_parse_reservemem);
+#endif /* CONFIG_TX_BOARDS */
+#ifdef CONFIG_SOFTWARE_SUSPEND
+int arch_pfn_is_nosave(unsigned long pfn)
+{
+	unsigned long phys = PFN_PHYS(pfn);
+#ifdef CONFIG_BLK_DEV_INITRD
+	if (initrd_start) {
+		if (phys >= initrd_start && phys < initrd_end)
+			return 1;
+	}
+#elif defined(CONFIG_ROOT_CRAMFS_LINEAR) || defined(CONFIG_ROOT_SQUASHFS_LINEAR)
+	if (linear_start) {
+		if (phys >= linear_start && phys < linear_end)
+			return 1;
+	}
+#endif
+#ifdef CONFIG_TX_BOARDS
+	if (reservemem_start) {
+		if (phys >= reservemem_start &&
+		    phys < reservemem_start + reservemem_size)
+			return 1;
+	}
+#endif
+	return 0;
+}
+#ifdef CONFIG_SWSUSP_USE_RESERVEMEM_PAGE
+int pfn_is_reservemem(unsigned long pfn)
+{
+	unsigned long phys = PFN_PHYS(pfn);
+#if defined(CONFIG_TX_BOARDS)
+	if (reservemem_start) {
+		if (phys >= reservemem_start &&
+		    phys < reservemem_start + reservemem_size)
+			return 1;
+	}
+#endif
+	return 0;
+}
+#endif /* CONFIG_SWSUSP_USE_RESERVEMEM_PAGE */
+#endif /* CONFIG_SOFTWARE_SUSPEND */
 /*
  * Initialize the bootmem allocator. It also setup initrd related data
  * if needed.
@@ -322,6 +458,11 @@ static void __init bootmem_init(void)
 	bootmap_size = init_bootmem(mapstart, highest);
 
 	/*
+	 * Initialize max_pfn.
+	 */
+	max_pfn = max_low_pfn;
+
+	/*
 	 * Register fully available low RAM pages with the bootmem allocator.
 	 */
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
@@ -368,6 +509,13 @@ static void __init bootmem_init(void)
 	 * Reserve initrd memory if needed.
 	 */
 	finalize_initrd();
+#if defined(CONFIG_TX_BOARDS)
+	if (reservemem_start) {
+		reserve_bootmem(reservemem_start, reservemem_size);
+		printk(KERN_INFO "Reservemem at: 0x%lx (%lu bytes)\n",
+		       reservemem_start, reservemem_size);
+	}
+#endif /* CONFIG_TX_BOARDS */
 }
 
 #endif	/* CONFIG_SGI_IP27 */
@@ -455,7 +603,11 @@ static void __init resource_init(void)
 
 	code_resource.start = __pa_symbol(&_text);
 	code_resource.end = __pa_symbol(&_etext) - 1;
+#ifdef CONFIG_XIP_KERNEL
+	data_resource.start = __pa_symbol(&_fdata);
+#else
 	data_resource.start = __pa_symbol(&_etext);
+#endif
 	data_resource.end = __pa_symbol(&_edata) - 1;
 
 	/*
@@ -494,8 +646,17 @@ static void __init resource_init(void)
 		 *  so we try it repeatedly and let the resource manager
 		 *  test it.
 		 */
+#ifndef CONFIG_XIP_KERNEL
 		request_resource(res, &code_resource);
 		request_resource(res, &data_resource);
+#else
+		if (code_resource.start >= res->start &&
+		    code_resource.end <= res->end)
+			request_resource(res, &code_resource);
+		if (data_resource.start >= res->start &&
+		    data_resource.end <= res->end)
+			request_resource(res, &data_resource);
+#endif
 	}
 }
 

@@ -187,6 +187,9 @@ struct mtd_info {
 	/* Chip-supported device locking */
 	int (*lock) (struct mtd_info *mtd, loff_t ofs, size_t len);
 	int (*unlock) (struct mtd_info *mtd, loff_t ofs, size_t len);
+#ifdef CONFIG_MTD_CHAR_MEMISLOCK
+	int (*islock) (struct mtd_info *mtd, loff_t ofs, size_t len);
+#endif
 
 	/* Power Management functions */
 	int (*suspend) (struct mtd_info *mtd);
@@ -195,6 +198,9 @@ struct mtd_info {
 	/* Bad block management functions */
 	int (*block_isbad) (struct mtd_info *mtd, loff_t ofs);
 	int (*block_markbad) (struct mtd_info *mtd, loff_t ofs);
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+	int flag_force_erase_badblock;
+#endif
 
 	struct notifier_block reboot_notifier;  /* default mode before reboot */
 

@@ -100,6 +100,13 @@ extern void ipv6_mc_down(struct inet6_dev *idev);
 extern void ipv6_mc_init_dev(struct inet6_dev *idev);
 extern void ipv6_mc_destroy_dev(struct inet6_dev *idev);
 extern void addrconf_dad_failure(struct inet6_ifaddr *ifp);
+#ifdef CONFIG_TOSHIBA_IPTV_MLDV2_FOR_STB
+extern int ipv6_sock_mc_join_ssm(struct sock *sk, int ifindex, 
+				 struct in6_addr *addr, struct in6_addr *addr2);
+
+extern int ipv6_dev_mc_inc_ssm(struct net_device *dev, struct in6_addr *addr,
+			       struct in6_addr *addr2);
+#endif
 
 extern int ipv6_chk_mcast_addr(struct net_device *dev, struct in6_addr *group,
 		struct in6_addr *src_addr);

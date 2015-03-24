@@ -325,6 +325,21 @@ int jffs2_write_inode_range(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 	retry:
 		D2(printk(KERN_DEBUG "jffs2_commit_write() loop: 0x%x to write to 0x%x\n", writelen, offset));
 
+#ifdef CONFIG_JFFS2_WRITE_PAGE_ONE_BLOCK
+		down(&f->sem);
+		datalen = min_t(uint32_t, writelen, PAGE_CACHE_SIZE - (offset & (PAGE_CACHE_SIZE-1)));
+		cdatalen = min_t(uint32_t, PAGE_CACHE_SIZE, datalen);
+
+		comprtype = jffs2_compress(c, f, buf, &comprbuf, &datalen, &cdatalen);
+		up(&f->sem);
+		ret = jffs2_reserve_space(c, sizeof(*ri) + cdatalen, &alloclen, ALLOC_NORMAL, JFFS2_SUMMARY_INODE_SIZE);
+		if (ret) {
+			D1(printk(KERN_DEBUG "jffs2_reserve_space returned %d\n", ret));
+			jffs2_free_comprbuf(comprbuf, buf);
+			break;
+		}
+		down(&f->sem);
+#else
 		ret = jffs2_reserve_space(c, sizeof(*ri) + JFFS2_MIN_DATA_LEN,
 					&alloclen, ALLOC_NORMAL, JFFS2_SUMMARY_INODE_SIZE);
 		if (ret) {
@@ -336,6 +351,7 @@ int jffs2_write_inode_range(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 		cdatalen = min_t(uint32_t, alloclen - sizeof(*ri), datalen);
 
 		comprtype = jffs2_compress(c, f, buf, &comprbuf, &datalen, &cdatalen);
+#endif
 
 		ri->magic = cpu_to_je16(JFFS2_MAGIC_BITMASK);
 		ri->nodetype = cpu_to_je16(JFFS2_NODETYPE_INODE);

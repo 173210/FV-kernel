@@ -24,6 +24,9 @@
 
 #include "power.h"
 
+#ifdef CONFIG_SNAPSHOT_BOOT
+int do_snapshot_boot;
+#endif
 
 static int noresume = 0;
 char resume_file[256] = CONFIG_PM_STD_PARTITION;
@@ -169,9 +172,16 @@ int pm_suspend_disk(void)
 
 	pr_debug("PM: snapshotting memory.\n");
 	in_suspend = 1;
+#ifdef CONFIG_SNAPSHOT_BOOT
+	do_snapshot_boot = 0;
+#endif
 	if ((error = swsusp_suspend()))
 		goto Done;
 
+#ifdef CONFIG_SNAPSHOT_BOOT
+	if (do_snapshot_boot)
+		in_suspend = 0;
+#endif
 	if (in_suspend) {
 		device_resume();
 		resume_console();

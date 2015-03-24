@@ -199,6 +199,9 @@ static int part_erase (struct mtd_info *mtd, struct erase_info *instr)
 	if (instr->addr >= mtd->size)
 		return -EINVAL;
 	instr->addr += part->offset;
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+	part->master->flag_force_erase_badblock = mtd->flag_force_erase_badblock;
+#endif
 	ret = part->master->erase(part->master, instr);
 	return ret;
 }
@@ -232,6 +235,16 @@ static int part_unlock (struct mtd_info *mtd, loff_t ofs, size_t len)
 		return -EINVAL;
 	return part->master->unlock(part->master, ofs + part->offset, len);
 }
+
+#ifdef CONFIG_MTD_CHAR_MEMISLOCK
+static int part_islock (struct mtd_info *mtd, loff_t ofs, size_t len)
+{
+	struct mtd_part *part = PART(mtd);
+	if ((len + ofs) > mtd->size)
+		return -EINVAL;
+	return part->master->islock(part->master, ofs + part->offset, len);
+}
+#endif
 
 static void part_sync(struct mtd_info *mtd)
 {
@@ -382,6 +395,10 @@ int add_mtd_partitions(struct mtd_info *master,
 			slave->mtd.lock = part_lock;
 		if (master->unlock)
 			slave->mtd.unlock = part_unlock;
+#ifdef CONFIG_MTD_CHAR_MEMISLOCK
+		if (master->islock)
+			slave->mtd.islock = part_islock;
+#endif
 		if (master->block_isbad)
 			slave->mtd.block_isbad = part_block_isbad;
 		if (master->block_markbad)

@@ -858,6 +858,22 @@ pci_scan_device(struct pci_bus *bus, int devfn)
 	dev->cfg_size = pci_cfg_space_size(dev);
 	dev->error_state = pci_channel_io_normal;
 
+#if defined(CONFIG_TOSHIBA_TC90411) || defined(CONFIG_TOSHIBA_OPBD4938)
+ {
+	extern int (*txboard_pci_scan_hook)(struct pci_dev *dev);
+	if (txboard_pci_scan_hook){
+		int ret;
+		ret = txboard_pci_scan_hook(dev);
+		if(ret==0) {
+			printk("bus=%d,devfn=0x%x,vid=0x%x,did=0x%x, SKIPPED\n",bus->number,devfn,dev->vendor,dev->device);
+			kfree(dev);
+			return NULL;
+		}else if(ret != 1){
+			return (struct pci_dev *)ret;
+		}
+	}
+ }
+#endif
 	/* Assume 32-bit PCI; let 64-bit PCI cards (which are far rarer)
 	   set this higher, assuming the system even supports it.  */
 	dev->dma_mask = 0xffffffff;

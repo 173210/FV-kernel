@@ -44,4 +44,6 @@ obj-$(CONFIG_CRYPTO_DEFLATE) += deflate.o
 obj-$(CONFIG_CRYPTO_MICHAEL_MIC) += michael_mic.o
 obj-$(CONFIG_CRYPTO_CRC32C) += crc32c.o
 
+obj-$(CONFIG_CRYPTO_LZO) += lzo.o
+
 obj-$(CONFIG_CRYPTO_TEST) += tcrypt.o

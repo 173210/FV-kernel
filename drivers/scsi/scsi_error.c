@@ -863,6 +863,7 @@ static int scsi_eh_try_stu(struct scsi_cmnd *scmd)
 	return 1;
 }
 
+#ifndef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
  /**
  * scsi_eh_stu - send START_UNIT if needed
  * @shost:	scsi host being recovered.
@@ -969,6 +970,7 @@ static int scsi_eh_bus_device_reset(struct Scsi_Host *shost,
 
 	return list_empty(work_q);
 }
+#endif
 
 /**
  * scsi_try_bus_reset - ask host to perform a bus reset
@@ -1028,6 +1030,7 @@ static int scsi_try_host_reset(struct scsi_cmnd *scmd)
 	return rtn;
 }
 
+#ifndef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
 /**
  * scsi_eh_bus_reset - send a bus reset 
  * @shost:	scsi host being recovered.
@@ -1084,6 +1087,7 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 	}
 	return list_empty(work_q);
 }
+#endif
 
 /**
  * scsi_eh_host_reset - send a host reset 
@@ -1415,9 +1419,15 @@ static void scsi_eh_ready_devs(struct Scsi_Host *shost,
 			       struct list_head *work_q,
 			       struct list_head *done_q)
 {
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	// It is not necessary.
+	// Because, if the command is aborted, bus reset has 
+	// already issued. 
+#else
 	if (!scsi_eh_stu(shost, work_q, done_q))
 		if (!scsi_eh_bus_device_reset(shost, work_q, done_q))
 			if (!scsi_eh_bus_reset(shost, work_q, done_q))
+#endif
 				if (!scsi_eh_host_reset(work_q, done_q))
 					scsi_eh_offline_sdevs(work_q, done_q);
 }
@@ -1433,6 +1443,14 @@ void scsi_eh_flush_done_q(struct list_head *done_q)
 
 	list_for_each_entry_safe(scmd, next, done_q, eh_entry) {
 		list_del_init(&scmd->eh_entry);
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+		if ((scmd->sense_buffer[2] & 0xf) == NOT_READY) {
+			// Don't need to retry the command.
+			// Because, in this case, the media is not ready.
+			// So, I/O request to Media is meaningless.
+			scmd->allowed = 1;
+		}
+#endif
 		if (scsi_device_online(scmd->device) &&
 		    !blk_noretry_request(scmd->request) &&
 		    (++scmd->retries <= scmd->allowed)) {
@@ -1440,6 +1458,16 @@ void scsi_eh_flush_done_q(struct list_head *done_q)
 							  " retry cmd: %p\n",
 							  current->comm,
 							  scmd));
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+				// The default timeout value might be shorten to detect
+				// the removal status. So modify timeout value for resending
+				// the command.
+				// For this feature, we use "timeout_retry" field 
+				// if "timeout_retry" is specified.
+				// This value will set by SCSI Disk driver.
+				if (scmd->timeout_retry)
+					scmd->timeout_per_command = scmd->timeout_retry;
+#endif
 				scsi_queue_insert(scmd, SCSI_MLQUEUE_EH_RETRY);
 		} else {
 			/*
@@ -1511,6 +1539,12 @@ static void scsi_unjam_host(struct Scsi_Host *shost)
 int scsi_error_handler(void *data)
 {
 	struct Scsi_Host *shost = data;
+#ifdef CONFIG_USB_RTSCHED
+	struct sched_param param = {
+		.sched_priority = CONFIG_USB_RTSCHED_PRIO
+	};
+	sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
 
 	current->flags |= PF_NOFREEZE;
 

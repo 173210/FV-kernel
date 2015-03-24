@@ -886,6 +886,14 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 				scsi_end_request(cmd, 0, this_count, 1);
 				return;
 			} else {
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+				if (time_after(jiffies, cmd->request->start_time + 30*HZ )) {
+					printk(KERN_INFO "Device %s unit attention.\n",
+					       req->rq_disk ? req->rq_disk->disk_name : "");
+					scsi_end_request(cmd, 0, this_count, 1);
+					return;
+				}
+#endif
 				/* Must have been a power glitch, or a
 				 * bus reset.  Could not have been a
 				 * media change, so we just retry the

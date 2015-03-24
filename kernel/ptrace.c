@@ -462,6 +462,12 @@ asmlinkage long sys_ptrace(long request, long pid, long addr, long data)
 		goto out;
 	}
 
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#include "kmc.h"
+__KMC_CHECK_PTRACE_REQUEST(request,ret);
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */
 	child = ptrace_get_task_struct(pid);
 	if (IS_ERR(child)) {
 		ret = PTR_ERR(child);

@@ -44,18 +44,7 @@ static void r39xx_wait(void)
 	local_irq_enable();
 }
 
-/*
- * There is a race when WAIT instruction executed with interrupt
- * enabled.
- * But it is implementation-dependent wheter the pipelie restarts when
- * a non-enabled interrupt is requested.
- */
-static void r4k_wait(void)
-{
-	__asm__("	.set	mips3			\n"
-		"	wait				\n"
-		"	.set	mips0			\n");
-}
+extern void r4k_wait(void);
 
 /*
  * This variant is preferable as it allows testing need_resched and going to
@@ -106,7 +95,7 @@ int __init wait_disable(char *s)
 
 __setup("nowait", wait_disable);
 
-static inline void check_wait(void)
+void __init check_wait(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
@@ -130,6 +119,8 @@ static inline void check_wait(void)
 	case CPU_R4650:
 	case CPU_R4700:
 	case CPU_R5000:
+	case CPU_R5500:
+	case CPU_VR5600:
 	case CPU_NEVADA:
 	case CPU_RM7000:
 	case CPU_4KC:
@@ -166,7 +157,6 @@ static inline void check_wait(void)
 
 void __init check_bugs32(void)
 {
-	check_wait();
 }
 
 /*
@@ -378,6 +368,13 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c)
 		             MIPS_CPU_WATCH | MIPS_CPU_LLSC;
 		c->tlbsize = 48;
 		break;
+	case PRID_IMP_VR5600:
+		c->cputype = CPU_VR5600;
+		c->isa_level = MIPS_CPU_ISA_IV;
+		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
+		             MIPS_CPU_WATCH | MIPS_CPU_LLSC;
+		c->tlbsize = 64;
+		break;
 	case PRID_IMP_NEVADA:
 		c->cputype = CPU_NEVADA;
 		c->isa_level = MIPS_CPU_ISA_IV;
@@ -566,6 +563,8 @@ static inline unsigned int decode_config3(struct cpuinfo_mips *c)
 		c->options |= MIPS_CPU_VEIC;
 	if (config3 & MIPS_CONF3_MT)
                 c->ases |= MIPS_ASE_MIPSMT;
+        if (config3 & MIPS_CONF3_ULRI)
+                c->options |= MIPS_CPU_ULRI;
 
 	return config3 & MIPS_CONF_M;
 }

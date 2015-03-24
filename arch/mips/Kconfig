@@ -788,6 +788,19 @@ config TOSHIBA_RBTX4938
 	  This Toshiba board is based on the TX4938 processor. Say Y here to
 	  support this machine type
 
+config TX_BOARDS
+	bool "TX boards"
+	select EARLY_PRINTK
+	select IRQ_CPU
+	select DMA_NONCOHERENT
+	select HW_HAS_PCI
+	select SWAP_IO_SPACE
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_LITTLE_ENDIAN
+	select ARCH_SPARSEMEM_ENABLE if 64BIT
+	select GENERIC_HARDIRQS_NO__DO_IRQ
+
 endchoice
 
 config KEXEC
@@ -815,6 +828,7 @@ source "arch/mips/momentum/Kconfig"
 source "arch/mips/pmc-sierra/Kconfig"
 source "arch/mips/sgi-ip27/Kconfig"
 source "arch/mips/sibyte/Kconfig"
+source "arch/mips/tx-boards/Kconfig"
 source "arch/mips/tx4927/Kconfig"
 source "arch/mips/tx4938/Kconfig"
 source "arch/mips/vr41xx/Kconfig"
@@ -1041,6 +1055,14 @@ config GPI_RM9000
 
 config WDT_RM9000
 	bool
+
+config PCIMEM_PHYSOFFSET
+	bool
+	default n
+
+config MMAP_NOHIMEMCHECK
+	bool
+	default n
 
 #
 # Unfortunately not all GT64120 systems run the chip at the same clock.
@@ -1375,6 +1397,9 @@ config SYS_HAS_CPU_RM9000
 config SYS_HAS_CPU_SB1
 	bool
 
+config SYS_HAS_CPU_SS1000
+	bool
+
 config WEAK_ORDERING
 	bool
 endmenu
@@ -1496,6 +1521,10 @@ config R5000_CPU_SCACHE
 	select BOARD_SCACHE
 
 config RM7000_CPU_SCACHE
+	bool
+	select BOARD_SCACHE
+
+config TXBOARD_CPU_SCACHE
 	bool
 	select BOARD_SCACHE
 
@@ -1650,6 +1679,10 @@ config CPU_MIPSR2_IRQ_EI
 #
 config CPU_MIPSR2_SRS
 	bool
+
+config CPU_HAS_OOO_MEMACCESS
+	bool "Out-of-order memory access available" if TX_BOARDS
+	default n
 
 config CPU_HAS_SYNC
 	bool
@@ -1842,6 +1875,27 @@ config HZ
 	default 256 if HZ_256
 	default 1000 if HZ_1000
 	default 1024 if HZ_1024
+
+config FREE_PROM_MEMORY
+	bool "Free prom memory"
+	depends on !SNAPSHOT_BOOT
+	default n
+	help
+	  Say Y here if hope to free prom memory at the end of booting.
+
+config ADJUST_MONOTONIC_TIME
+	bool "Adjust monotonic time to real boot time"
+	depends on 32BIT
+	default n
+
+config XIP_KERNEL
+	bool "Kernel Execute-In-Place from ROM"
+	default n
+
+config XIP_VIRT_ADDR
+	hex "Kernel .text virtual address"
+	depends on XIP_KERNEL
+	default 0
 
 source "kernel/Kconfig.preempt"
 
@@ -2042,9 +2096,12 @@ config SECCOMP
 
 	  If unsure, say Y. Only embedded should say N here.
 
-config PM
-	bool "Power Management support (EXPERIMENTAL)"
-	depends on EXPERIMENTAL && SOC_AU1X00
+endmenu
+
+menu "Power management options"
+	depends on (EXPERIMENTAL && SOC_AU1X00) || TX_BOARDS
+
+source kernel/power/Kconfig
 
 config APM
         tristate "Advanced Power Management Emulation"
@@ -2072,6 +2129,14 @@ config APM
 	  anything, try disabling/enabling this option (or disabling/enabling
 	  APM in your BIOS).
 
+config PM_DDRPHY_PIN
+	int "DDR Phy Control Pin Number"
+	depends on PM && (TOSHIBA_TC90411 || TOSHIBA_TC90412 || TOSHIBA_TC90416)
+	range 0 59 if TOSHIBA_TC90411
+	default "52" if TOSHIBA_TC90411
+	range 0 92 if (TOSHIBA_TC90412 || TOSHIBA_TC90416)
+	default "39" if TOSHIBA_TC90412
+
 endmenu
 
 source "net/Kconfig"
@@ -2082,6 +2147,14 @@ source "fs/Kconfig"
 
 source "arch/mips/oprofile/Kconfig"
 
+menu "Instrumentation Support"
+
+source "kernel/Kconfig.marker"
+
+source "ltt/Kconfig"
+
+endmenu
+
 source "arch/mips/Kconfig.debug"
 
 source "security/Kconfig"
@@ -2089,3 +2162,5 @@ source "security/Kconfig"
 source "crypto/Kconfig"
 
 source "lib/Kconfig"
+
+source "tsb_modules/Kconfig"

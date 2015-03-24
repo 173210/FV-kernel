@@ -42,6 +42,7 @@
 #include <linux/audit.h> /* for audit_free() */
 #include <linux/resource.h>
 #include <linux/blkdev.h>
+#include <linux/ltt-facilities.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -62,8 +63,20 @@ static void __unhash_process(struct task_struct *p)
 
 		list_del_rcu(&p->tasks);
 		__get_cpu_var(process_counts)--;
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+		{
+			int i;
+			for (i = 0; i < LTT_FAC_PER_PROCESS; i++) {
+				if (p->ltt_facilities[i] == 0)
+					break;
+				WARN_ON(ltt_facility_unregister(
+							p->ltt_facilities[i]));
+			}
+		}
+#endif //CONFIG_LTT_USERSPACE_GENERIC
 	}
 	list_del_rcu(&p->thread_group);
+	netcpurate_zombie_period(p);
 	remove_parent(p);
 }
 
@@ -174,6 +187,7 @@ repeat:
 	write_unlock_irq(&tasklist_lock);
 	proc_flush_task(p);
 	release_thread(p);
+	MARK(kernel_process_free, "%d", p->pid);
 	call_rcu(&p->rcu, delayed_put_task_struct);
 
 	p = leader;
@@ -275,6 +289,7 @@ static void reparent_to_init(void)
 
 	ptrace_unlink(current);
 	/* Reparent to init */
+	netcpurate_zombie_period(current);
 	remove_parent(current);
 	current->parent = child_reaper(current);
 	current->real_parent = child_reaper(current);
@@ -856,6 +871,12 @@ fastcall NORET_TYPE void do_exit(long code)
 	int group_dead;
 
 	profile_task_exit(tsk);
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#include "kmc.h"
+__KMC_DO_EXIT(tsk);
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */
 
 	WARN_ON(atomic_read(&tsk->fs_excl));
 
@@ -938,6 +959,8 @@ fastcall NORET_TYPE void do_exit(long code)
 
 	if (group_dead)
 		acct_process();
+	MARK(kernel_process_exit, "%d", tsk->pid);
+	
 	exit_sem(tsk);
 	__exit_files(tsk);
 	__exit_fs(tsk);
@@ -1318,8 +1341,7 @@ static int wait_task_stopped(struct task_struct *p, int delayed_group_leader,
 		int why = (p->ptrace & PT_PTRACED) ? CLD_TRAPPED : CLD_STOPPED;
 
 		exit_code = p->exit_code;
-		if (unlikely(!exit_code) ||
-		    unlikely(p->state & TASK_TRACED))
+		if (unlikely(!exit_code) || unlikely(p->exit_state))
 			goto bail_ref;
 		return wait_noreap_copyout(p, pid, uid,
 					   why, (exit_code << 8) | 0x7f,
@@ -1470,6 +1492,8 @@ static long do_wait(pid_t pid, int options, struct siginfo __user *infop,
 	DECLARE_WAITQUEUE(wait, current);
 	struct task_struct *tsk;
 	int flag, retval;
+
+	MARK(kernel_process_wait, "%d", pid);
 
 	add_wait_queue(&current->signal->wait_chldexit,&wait);
 repeat:
@@ -1682,3 +1706,9 @@ asmlinkage long sys_waitpid(pid_t pid, int __user *stat_addr, int options)
 }
 
 #endif
+
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#include "kmc.c"
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */

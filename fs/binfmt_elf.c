@@ -1264,6 +1264,14 @@ static int writenote(struct memelfnote *men, struct file *file,
 	if (!dump_seek(file, (off))) \
 		goto end_coredump;
 
+#ifdef CONFIG_DUMP_DEFLATE_CORE
+#define DUMP_SEEK_DEFLATE(x) elf_core_dump_zlib(file, obuf, zbuf)
+#define DUMP_WRITE_DEFLATE(_f,_addr,_size) elf_core_dump_zlib(_f, obuf, _addr)
+#else
+#define DUMP_SEEK_DEFLATE(x) dump_seek(file, x)
+#define DUMP_WRITE_DEFLATE(_f,_addr,_size) dump_write(_f,_addr,_size)
+#endif
+
 static void fill_elf_header(struct elfhdr *elf, int segs)
 {
 	memcpy(elf->e_ident, ELFMAG, SELFMAG);
@@ -1471,6 +1479,68 @@ static struct vm_area_struct *next_vma(struct vm_area_struct *this_vma,
  * and then they are actually written out.  If we run out of core limit
  * we just truncate.
  */
+
+#ifdef CONFIG_DUMP_DEFLATE_CORE
+#include <linux/zlib.h>
+#include <linux/zutil.h>
+#include <linux/vmalloc.h>
+static z_stream def_core;
+
+static int elf_core_dump_zlib(struct file * file, unsigned char *ob, unsigned char *ib)
+{
+	int zlibout = def_core.total_out;
+	def_core.next_in   = ib;
+	def_core.next_out  = ob;
+	def_core.avail_in  = PAGE_SIZE;
+	def_core.avail_out = PAGE_SIZE;
+	zlib_deflate(&def_core, Z_PARTIAL_FLUSH);
+	return dump_write(file, ob, def_core.total_out - zlibout);
+}
+
+static int start_zlib_dump(unsigned char **zbuf, unsigned char **obuf)
+{
+	def_core.workspace = vmalloc(zlib_deflate_workspacesize());
+	if (!def_core.workspace) {
+		printk(KERN_WARNING "Failed to allocate %d bytes for deflate workspace\n", zlib_deflate_workspacesize());
+		return -ENOMEM;
+	}
+
+	if (Z_OK != zlib_deflateInit(&def_core, 3)) {
+		printk(KERN_WARNING "deflateInit failed\n");
+		vfree(def_core.workspace);
+		return -1;
+	}
+
+	def_core.total_in  = 0;
+	def_core.total_out = 0;
+
+	*zbuf  = (unsigned char *)vmalloc(PAGE_SIZE);
+	if( !*zbuf ) {
+		printk(KERN_WARNING "Failed to allocate for zero buffer\n");
+		return 1;
+	}
+
+	*obuf  = (unsigned char *)vmalloc(PAGE_SIZE);
+	if( !*obuf ) {
+		printk(KERN_WARNING "Failed to allocate for out buffer\n");
+		vfree(*zbuf);
+		return 1;
+	}
+	memset( *zbuf, 0, PAGE_SIZE);
+
+	return 0;
+}
+
+static void end_zlib_dump(unsigned char **zbuf, unsigned char **obuf)
+{
+	zlib_deflateEnd(&def_core);
+	vfree(*zbuf);
+	vfree(*obuf);
+	vfree(def_core.workspace);
+	return;
+}
+#endif
+
 static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 {
 #define	NUM_NOTES	6
@@ -1496,6 +1566,9 @@ static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 #endif
 	int thread_status_size = 0;
 	elf_addr_t *auxv;
+#ifdef CONFIG_DUMP_DEFLATE_CORE
+	unsigned char *obuf = NULL, *zbuf = NULL;
+#endif
 
 	/*
 	 * We no longer stop all VM operations.
@@ -1686,6 +1759,13 @@ static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 	/* Align to page */
 	DUMP_SEEK(dataoff - foffset);
 
+#ifdef CONFIG_DUMP_DEFLATE_CORE
+	if ( start_zlib_dump(&zbuf, &obuf) != 0 ) {
+		printk(KERN_WARNING "setup zlib is failed\n");
+		return 1;
+	}
+#endif
+
 	for (vma = first_vma(current, gate_vma); vma != NULL;
 			vma = next_vma(vma, gate_vma)) {
 		unsigned long addr;
@@ -1701,10 +1781,11 @@ static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 
 			if (get_user_pages(current, current->mm, addr, 1, 0, 1,
 						&page, &vma) <= 0) {
-				DUMP_SEEK(PAGE_SIZE);
+				if (!DUMP_SEEK_DEFLATE(PAGE_SIZE))
+					goto end_coredump;
 			} else {
 				if (page == ZERO_PAGE(addr)) {
-					if (!dump_seek(file, PAGE_SIZE)) {
+					if (!DUMP_SEEK_DEFLATE(PAGE_SIZE)) {
 						page_cache_release(page);
 						goto end_coredump;
 					}
@@ -1714,7 +1795,7 @@ static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 							 page_to_pfn(page));
 					kaddr = kmap(page);
 					if ((size += PAGE_SIZE) > limit ||
-					    !dump_write(file, kaddr,
+					    !DUMP_WRITE_DEFLATE(file, kaddr,
 					    PAGE_SIZE)) {
 						kunmap(page);
 						page_cache_release(page);
@@ -1733,6 +1814,9 @@ static int elf_core_dump(long signr, struct pt_regs *regs, struct file *file)
 
 end_coredump:
 	set_fs(fs);
+#ifdef CONFIG_DUMP_DEFLATE_CORE
+	end_zlib_dump(&zbuf, &obuf);
+#endif
 
 cleanup:
 	while (!list_empty(&thread_list)) {

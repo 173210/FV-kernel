@@ -7,6 +7,8 @@
  *
  * Copyright (C) 2001  Ingo Molnar <mingo@redhat.com>
  * Copyright (C) 2002  Red Hat, Inc.
+ * Copyright (C) 2007  TOSHIBA CORPORATION
+ *
  */
 
 #include <linux/smp_lock.h>
@@ -284,7 +286,20 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 	struct udphdr *udph;
 	struct iphdr *iph;
 	struct ethhdr *eth;
+	u32 local_ip = np->local_ip;
 
+	if (!local_ip) {
+		struct in_device *in_dev = NULL;
+		rcu_read_lock();
+		if (np->dev)
+			in_dev = __in_dev_get_rcu(np->dev);
+		if (in_dev && in_dev->ifa_list)
+			local_ip = ntohl(in_dev->ifa_list->ifa_local);
+		rcu_read_unlock();
+	}
+	if ((np->use_dynamic_ip && !np->remote_ip)
+	    || !local_ip || !np->remote_port)
+		return;
 	udp_len = len + sizeof(*udph);
 	ip_len = eth_len = udp_len + sizeof(*iph);
 	total_len = eth_len + ETH_HLEN + NET_IP_ALIGN;
@@ -301,7 +316,7 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 	udph->dest = htons(np->remote_port);
 	udph->len = htons(udp_len);
 	udph->check = 0;
-	udph->check = csum_tcpudp_magic(htonl(np->local_ip),
+	udph->check = csum_tcpudp_magic(htonl(local_ip),
 					htonl(np->remote_ip),
 					udp_len, IPPROTO_UDP,
 					csum_partial((unsigned char *)udph, udp_len, 0));
@@ -319,7 +334,7 @@ void netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 	iph->ttl      = 64;
 	iph->protocol = IPPROTO_UDP;
 	iph->check    = 0;
-	put_unaligned(htonl(np->local_ip), &(iph->saddr));
+	put_unaligned(htonl(local_ip), &(iph->saddr));
 	put_unaligned(htonl(np->remote_ip), &(iph->daddr));
 	iph->check    = ip_fast_csum((unsigned char *)iph, iph->ihl);
 
@@ -491,11 +506,37 @@ int __netpoll_rx(struct sk_buff *skb)
 		goto out;
 	if (np->local_ip && np->local_ip != ntohl(iph->daddr))
 		goto out;
-	if (np->remote_ip && np->remote_ip != ntohl(iph->saddr))
+	if (!np->use_dynamic_ip &&
+	    np->remote_ip && np->remote_ip != ntohl(iph->saddr))
 		goto out;
 	if (np->local_port && np->local_port != ntohs(uh->dest))
 		goto out;
 
+	if (np->use_dynamic_ip &&
+	    np->remote_ip != ntohl(iph->saddr)) {
+		np->remote_ip = ntohl(iph->saddr);
+		np->remote_port = ntohs(uh->source);
+		np->use_dynamic_mac = 1;
+		printk(KERN_DEBUG "%s: remote IP %d.%d.%d.%d\n",
+		       np->name, HIPQUAD(np->remote_ip));
+		printk(KERN_DEBUG "%s: remote port %d\n",
+		       np->name, np->remote_port);
+	}
+	/* Copy the MAC address if we need to. */
+	if (np->use_dynamic_mac) {
+		memcpy(np->remote_mac, eth_hdr(skb)->h_source,
+		       sizeof(np->remote_mac));
+		np->use_dynamic_mac = 0;
+		printk(KERN_DEBUG "%s: remote ethernet address "
+		       "%02x:%02x:%02x:%02x:%02x:%02x\n",
+		       np->name,
+		       np->remote_mac[0],
+		       np->remote_mac[1],
+		       np->remote_mac[2],
+		       np->remote_mac[3],
+		       np->remote_mac[4],
+		       np->remote_mac[5]);
+	}
 	np->rx_hook(np, ntohs(uh->source),
 		    (char *)(uh+1),
 		    ulen - sizeof(struct udphdr));
@@ -514,59 +555,81 @@ out:
 
 int netpoll_parse_options(struct netpoll *np, char *opt)
 {
-	char *cur=opt, *delim;
+	char *cur=opt, *delim, bak;
 
-	if (*cur != '@') {
-		if ((delim = strchr(cur, '@')) == NULL)
-			goto parse_failed;
+	if (*cur && strchr("@/,", *cur) == NULL) {
+		if ((delim = strpbrk(cur, "@/,")) == NULL)
+			delim = cur + strlen(cur);
+		bak = *delim;
 		*delim = 0;
-		np->local_port = simple_strtol(cur, NULL, 10);
-		cur = delim;
+		np->local_port=simple_strtol(cur, &cur, 10);
+		if (cur != delim)
+			goto parse_failed;
+		*delim = bak;
 	}
-	cur++;
+	if (*cur == '@')
+		cur++;
 	printk(KERN_INFO "%s: local port %d\n", np->name, np->local_port);
 
-	if (*cur != '/') {
-		if ((delim = strchr(cur, '/')) == NULL)
-			goto parse_failed;
+	if (*cur && strchr("/,", *cur) == NULL) {
+		if ((delim = strpbrk(cur, "/,")) == NULL)
+			delim = cur + strlen(cur);
+		bak = *delim;
 		*delim = 0;
 		np->local_ip = ntohl(in_aton(cur));
 		cur = delim;
+		*delim = bak;
 
 		printk(KERN_INFO "%s: local IP %d.%d.%d.%d\n",
 		       np->name, HIPQUAD(np->local_ip));
 	}
-	cur++;
+	if (*cur == '/')
+		cur++;
 
-	if (*cur != ',') {
+	if (*cur != ',' && *cur) {
 		/* parse out dev name */
 		if ((delim = strchr(cur, ',')) == NULL)
-			goto parse_failed;
+			delim = cur + strlen(cur);
+		bak = *delim;
 		*delim = 0;
 		strlcpy(np->dev_name, cur, sizeof(np->dev_name));
 		cur = delim;
+		*delim = bak;
 	}
-	cur++;
+	if (*cur == ',')
+		cur++;
 
 	printk(KERN_INFO "%s: interface %s\n", np->name, np->dev_name);
 
-	if (*cur != '@') {
+	if (*cur != '@' && *cur) {
 		/* dst port */
 		if ((delim = strchr(cur, '@')) == NULL)
-			goto parse_failed;
+			delim = cur + strlen(cur);
+			
+		bak = *delim;
 		*delim = 0;
-		np->remote_port = simple_strtol(cur, NULL, 10);
-		cur = delim;
+		np->remote_port=simple_strtol(cur, &cur, 10);
+		if (cur != delim)
+			goto parse_failed;
+		*delim = bak;
 	}
-	cur++;
+	if (*cur == '@')
+		cur++;
 	printk(KERN_INFO "%s: remote port %d\n", np->name, np->remote_port);
 
 	/* dst ip */
-	if ((delim = strchr(cur, '/')) == NULL)
-		goto parse_failed;
-	*delim = 0;
-	np->remote_ip = ntohl(in_aton(cur));
-	cur = delim + 1;
+	if (*cur) {
+		if ((delim = strchr(cur, '/')) == NULL)
+			delim = cur + strlen(cur);
+		bak = *delim;
+		*delim=0;
+		np->remote_ip=ntohl(in_aton(cur));
+		cur=delim;
+		*delim = bak;
+	} else
+		np->use_dynamic_ip = 1;
+	if (*cur == '/')
+		cur++;
 
 	printk(KERN_INFO "%s: remote IP %d.%d.%d.%d\n",
 	       np->name, HIPQUAD(np->remote_ip));
@@ -598,8 +661,12 @@ int netpoll_parse_options(struct netpoll *np, char *opt)
 		*delim = 0;
 		np->remote_mac[4] = simple_strtol(cur, NULL, 16);
 		cur = delim + 1;
-		np->remote_mac[5] = simple_strtol(cur, NULL, 16);
+		np->remote_mac[5]=simple_strtol(cur, &cur, 16);
 	}
+	else
+		np->use_dynamic_mac = 1;
+	if (*cur)
+		goto parse_failed;
 
 	printk(KERN_INFO "%s: remote ethernet address "
 	       "%02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -618,6 +685,8 @@ int netpoll_parse_options(struct netpoll *np, char *opt)
 	       np->name, cur);
 	return -1;
 }
+
+static void dummy_hook(struct netpoll *np, int port, char *msg, int len) {}
 
 int netpoll_setup(struct netpoll *np)
 {
@@ -666,7 +735,7 @@ int netpoll_setup(struct netpoll *np)
 		goto release;
 	}
 
-	if (!netif_running(ndev)) {
+	if (!netif_running(ndev) && np->local_ip) {
 		unsigned long atmost, atleast;
 
 		printk(KERN_INFO "%s: device %s not up yet, forcing it\n",
@@ -709,8 +778,13 @@ int netpoll_setup(struct netpoll *np)
 
 	if (is_zero_ether_addr(np->local_mac) && ndev->dev_addr)
 		memcpy(np->local_mac, ndev->dev_addr, 6);
+	printk(KERN_DEBUG "%s: local ethernet address "
+	       "%02x:%02x:%02x:%02x:%02x:%02x\n",
+	       np->name,
+	       np->local_mac[0], np->local_mac[1], np->local_mac[2],
+	       np->local_mac[3], np->local_mac[4], np->local_mac[5]);
 
-	if (!np->local_ip) {
+	if (!np->local_ip && netif_running(ndev) && netif_carrier_ok(ndev)) {
 		rcu_read_lock();
 		in_dev = __in_dev_get_rcu(ndev);
 
@@ -727,6 +801,8 @@ int netpoll_setup(struct netpoll *np)
 		printk(KERN_INFO "%s: local IP %d.%d.%d.%d\n",
 		       np->name, HIPQUAD(np->local_ip));
 	}
+	if ((np->use_dynamic_mac || np->use_dynamic_ip) && !np->rx_hook)
+		np->rx_hook = dummy_hook;
 
 	if (np->rx_hook) {
 		spin_lock_irqsave(&npinfo->rx_lock, flags);

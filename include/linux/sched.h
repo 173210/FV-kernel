@@ -85,6 +85,7 @@ struct sched_param {
 #include <linux/task_io_accounting.h>
 
 #include <asm/processor.h>
+#include <linux/ltt-facilities.h>
 
 struct exec_domain;
 struct futex_pi_state;
@@ -798,6 +799,34 @@ enum sleep_type {
 
 struct prio_array;
 
+#ifdef CONFIG_NETCPURATE
+#include <asm/timex.h>
+struct netcpurate_dat {
+	cycles_t stime;	/* start */
+	cycles_t utime;	/* used */
+	cycles_t ntime;	/* nest used */
+	int nnum;	/* nest number */
+
+	cycles_t astime;    /* activate_task() start */
+	int asflag;         /* activate_task() set flag */
+	cycles_t ltime_max; /* latency max */
+	cycles_t ltime_min; /* latency min */
+	cycles_t ltime_sum; /* latency sum */
+	int lnum;           /* latency number */
+
+};
+extern void netcpurate_irq_period_end(unsigned int irq);
+extern void netcpurate_irq_period_start(unsigned int irq);
+extern void netcpurate_task_period(struct task_struct *prev, struct task_struct *next);
+extern void netcpurate_activate_period_start(struct task_struct *p);
+extern void netcpurate_zombie_period(struct task_struct *p);
+#else
+static inline void netcpurate_irq_period_end(unsigned int irq) {}
+static inline void netcpurate_irq_period_start(unsigned int irq) {}
+static inline void netcpurate_task_period(struct task_struct *prev, struct task_struct *next) {}
+static inline void netcpurate_activate_period_start(struct task_struct *p) {}
+static inline void netcpurate_zombie_period(struct task_struct *p) {}
+#endif
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	struct thread_info *thread_info;
@@ -1051,6 +1080,12 @@ struct task_struct {
 #ifdef CONFIG_FAULT_INJECTION
 	int make_it_fail;
 #endif
+#ifdef CONFIG_NETCPURATE
+	struct netcpurate_dat cpu;
+#endif
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+	uint8_t ltt_facilities[LTT_FAC_PER_PROCESS];
+#endif //CONFIG_LTT_USERSPACE_GENERIC
 };
 
 static inline pid_t process_group(struct task_struct *tsk)

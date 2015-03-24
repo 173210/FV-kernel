@@ -505,6 +505,7 @@ asmlinkage int printk(const char *fmt, ...)
 	int r;
 
 	va_start(args, fmt);
+	MARK(kernel_printk, "%p", __builtin_return_address(0));
 	r = vprintk(fmt, args);
 	va_end(args);
 
@@ -529,13 +530,36 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 		zap_locks();
 
 	/* This stops the holder of console_sem just where we want him */
-	local_irq_save(flags);
+	raw_local_irq_save(flags);
 	lockdep_off();
 	spin_lock(&logbuf_lock);
 	printk_cpu = smp_processor_id();
 
 	/* Emit the output into the temporary buffer */
 	printed_len = vscnprintf(printk_buf, sizeof(printk_buf), fmt, args);
+
+	if (printed_len > 0) {
+		unsigned int loglevel;
+		int mark_len;
+		const char *mark_buf;
+
+		if (printk_buf[0] == '<' && printk_buf[1] >='0' &&
+		   printk_buf[1] <= '7' && printk_buf[2] == '>') {
+			loglevel = printk_buf[1] - '0';
+			mark_buf = &printk_buf[3];
+			mark_len = printed_len-3;
+		} else {
+			loglevel = default_message_loglevel;
+			mark_buf = printk_buf;
+			mark_len = printed_len;
+		}
+		if (mark_buf[mark_len-1] == '\n')
+			mark_len--;
+		_MARK(_MF_DEFAULT & ~_MF_LOCKDEP, kernel_vprintk,
+			"%c %*:*v %p",
+			loglevel, sizeof(char), mark_len, mark_buf,
+			__builtin_return_address(0));
+	}
 
 	/*
 	 * Copy the output into log_buf.  If the caller didn't provide
@@ -618,7 +642,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 			up(&console_sem);
 		}
 		lockdep_on();
-		local_irq_restore(flags);
+		raw_local_irq_restore(flags);
 	} else {
 		/*
 		 * Someone else owns the drivers.  We drop the spinlock, which
@@ -628,7 +652,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 		printk_cpu = UINT_MAX;
 		spin_unlock(&logbuf_lock);
 		lockdep_on();
-		local_irq_restore(flags);
+		raw_local_irq_restore(flags);
 	}
 
 	preempt_enable();

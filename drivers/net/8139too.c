@@ -111,6 +111,8 @@
 #include <asm/uaccess.h>
 #include <asm/irq.h>
 
+#define WORKAROUND_RESUME
+
 #define RTL8139_DRIVER_NAME   DRV_NAME " Fast Ethernet driver " DRV_VERSION
 #define PFX DRV_NAME ": "
 
@@ -974,6 +976,29 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 	for (i = 0; i < 3; i++)
 		((u16 *) (dev->dev_addr))[i] =
 		    le16_to_cpu (read_eeprom (ioaddr, i + 7, addr_len));
+
+#if !defined(MODULE) && defined(CONFIG_8139TOO_PMON_ETHERADDR)
+	{
+		unsigned short id = read_eeprom (ioaddr, 0, 8);
+		if(id == 0x0000)
+			printk("WARNING: RTL8100 EEPROM seems not to be implemented.\n");
+		else if((id == 0xffff))
+			printk("WARNING: RTL8100 EEPROM seems not to be initilaized.\n");
+	}
+	if (is_zero_ether_addr(dev->dev_addr) ||
+	    is_broadcast_ether_addr(dev->dev_addr)) {
+		extern char *pmon_getenv(const char *name) __init;
+		char *tmpstr = pmon_getenv("etheraddr");
+		if (tmpstr) {
+			for (i = 0; i < 6; i++) {
+				dev->dev_addr[i] = simple_strtoul(tmpstr, &tmpstr, 16);
+				if (*tmpstr == ':')
+					tmpstr++;
+			}
+		}
+	}
+#endif
+
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 
 	/* The Rtl8139-specific entries in the device structure. */
@@ -1008,6 +1033,9 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 	tp->mmio_addr = ioaddr;
 	tp->msg_enable =
 		(debug < 0 ? RTL8139_DEF_MSG_ENABLE : ((1 << debug) - 1));
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	tp->msg_enable &= ~NETIF_MSG_LINK; /* hack for netconsole deadlock */
+#endif
 	spin_lock_init (&tp->lock);
 	spin_lock_init (&tp->rx_lock);
 	INIT_DELAYED_WORK(&tp->thread, rtl8139_thread);
@@ -1017,6 +1045,15 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 	tp->mii.phy_id_mask = 0x3f;
 	tp->mii.reg_num_mask = 0x1f;
 
+#ifdef CONFIG_8139TOO_FIXED_DEVNAME
+ {
+	char *fixed_devname = CONFIG_8139TOO_FIXED_DEVNAME_STR;
+	if(fixed_devname && fixed_devname[0]) {
+		strncpy(dev->name,fixed_devname,IFNAMSIZ);
+		dev->name[IFNAMSIZ-1] = 0;
+	}
+ }
+#endif
 	/* dev is fully set up and ready to use now */
 	DPRINTK("about to register device named %s (%p)...\n", dev->name, dev);
 	i = register_netdev (dev);
@@ -1378,6 +1415,10 @@ static void rtl8139_hw_start (struct net_device *dev)
 
 	rtl8139_chip_reset (ioaddr);
 
+#ifdef WORKAROUND_RESUME
+	/* init Rx ring buffer DMA address */
+	RTL_W32_F (RxBuf, tp->rx_ring_dma);
+#endif
 	/* unlock Config[01234] and BMCR register writes */
 	RTL_W8_F (Cfg9346, Cfg9346_Unlock);
 	/* Restore our idea of the MAC address. */
@@ -1407,8 +1448,10 @@ static void rtl8139_hw_start (struct net_device *dev)
 	/* Lock Config[01234] and BMCR register writes */
 	RTL_W8 (Cfg9346, Cfg9346_Lock);
 
+#ifndef WORKAROUND_RESUME
 	/* init Rx ring buffer DMA address */
 	RTL_W32_F (RxBuf, tp->rx_ring_dma);
+#endif
 
 	/* init Tx buffer DMA addresses */
 	for (i = 0; i < NUM_TX_DESC; i++)
@@ -1724,13 +1767,17 @@ static int rtl8139_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	}
 
 	spin_lock_irqsave(&tp->lock, flags);
+
+	wmb();
+
 	RTL_W32_F (TxStatus0 + (entry * sizeof (u32)),
 		   tp->tx_flag | max(len, (unsigned int)ETH_ZLEN));
 
 	dev->trans_start = jiffies;
 
 	tp->cur_tx++;
-	wmb();
+	/* We think that wmb() in here is incorrect. */
+//	wmb();
 
 	if ((tp->cur_tx - NUM_TX_DESC) == tp->dirty_tx)
 		netif_stop_queue (dev);

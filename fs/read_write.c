@@ -15,8 +15,8 @@
 #include <linux/module.h>
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
+#include <linux/ltt-tracer.h>	/* for LTT_LOG_RW_SIZE */
 #include "read_write.h"
-
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
@@ -145,6 +145,9 @@ asmlinkage off_t sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
 		if (res != (loff_t)retval)
 			retval = -EOVERFLOW;	/* LFS: should only happen on 32 bit platforms */
 	}
+
+	MARK(fs_lseek, "%u %4b %u", fd, offset, origin);
+
 	fput_light(file, fput_needed);
 bad:
 	return retval;
@@ -171,6 +174,8 @@ asmlinkage long sys_llseek(unsigned int fd, unsigned long offset_high,
 
 	offset = vfs_llseek(file, ((loff_t) offset_high << 32) | offset_low,
 			origin);
+
+	MARK(fs_llseek, "%u %8b %u", fd, offset, origin);
 
 	retval = (int)offset;
 	if (offset >= 0) {
@@ -362,7 +367,10 @@ asmlinkage ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+		MARK(fs_read, "%u %zu", fd, count);
 		ret = vfs_read(file, buf, count, &pos);
+		MARK(fs_read_data, "%u %zd %k",
+			fd, ret, min(LTT_LOG_RW_SIZE, max(0L, (long)ret)), buf);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
 	}
@@ -380,7 +388,10 @@ asmlinkage ssize_t sys_write(unsigned int fd, const char __user * buf, size_t co
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+		MARK(fs_write, "%u %zu", fd, count);
 		ret = vfs_write(file, buf, count, &pos);
+		MARK(fs_write_data, "%u %zd %k",
+			fd, ret, min(LTT_LOG_RW_SIZE, max(0L, (long)ret)), buf);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
 	}
@@ -401,8 +412,11 @@ asmlinkage ssize_t sys_pread64(unsigned int fd, char __user *buf,
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PREAD)
+		if (file->f_mode & FMODE_PREAD) {
+			MARK(fs_pread64, "%u %zu %8b", fd, count, pos);
 			ret = vfs_read(file, buf, count, &pos);
+		}
+
 		fput_light(file, fput_needed);
 	}
 
@@ -422,8 +436,11 @@ asmlinkage ssize_t sys_pwrite64(unsigned int fd, const char __user *buf,
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PWRITE)  
+ 		if (file->f_mode & FMODE_PWRITE) {
+			MARK(fs_pwrite64, "%u %zu %8b",
+				fd, count, pos);
 			ret = vfs_write(file, buf, count, &pos);
+		}
 		fput_light(file, fput_needed);
 	}
 
@@ -669,6 +686,7 @@ sys_readv(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+		MARK(fs_readv, "%lu %lu", fd, vlen);
 		ret = vfs_readv(file, vec, vlen, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);
@@ -690,6 +708,7 @@ sys_writev(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
 	file = fget_light(fd, &fput_needed);
 	if (file) {
 		loff_t pos = file_pos_read(file);
+		MARK(fs_writev, "%lu %lu", fd, vlen);
 		ret = vfs_writev(file, vec, vlen, &pos);
 		file_pos_write(file, pos);
 		fput_light(file, fput_needed);

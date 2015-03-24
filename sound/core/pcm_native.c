@@ -3145,6 +3145,10 @@ static struct page *snd_pcm_mmap_data_nopage(struct vm_area_struct *area,
 			return NOPAGE_OOM; /* XXX: is this really due to OOM? */
 	} else {
 		vaddr = runtime->dma_area + offset;
+#if defined(__mips__) && defined(CONFIG_DMA_NONCOHERENT)
+		/* dma_area is nocache addr */
+		vaddr = CAC_ADDR(vaddr);
+#endif
 		page = virt_to_page(vaddr);
 	}
 	get_page(page);
@@ -3166,6 +3170,10 @@ static struct vm_operations_struct snd_pcm_vm_ops_data =
 static int snd_pcm_default_mmap(struct snd_pcm_substream *substream,
 				struct vm_area_struct *area)
 {
+#if defined(__mips__) && defined(CONFIG_DMA_NONCOHERENT)
+	/* use uncached access for dma_area */
+	area->vm_page_prot = pgprot_noncached(area->vm_page_prot);
+#endif
 	area->vm_ops = &snd_pcm_vm_ops_data;
 	area->vm_private_data = substream;
 	area->vm_flags |= VM_RESERVED;

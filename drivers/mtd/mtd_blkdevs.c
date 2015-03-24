@@ -22,6 +22,10 @@
 #include <linux/mutex.h>
 #include <asm/uaccess.h>
 
+#ifdef CONFIG_MTD_BLOCK_THREAD_SYNC
+#define MTDBLOCK_THREAD_SYNC
+#endif
+
 static LIST_HEAD(blktrans_majors);
 
 extern struct mutex mtd_table_mutex;
@@ -33,6 +37,10 @@ struct mtd_blkcore_priv {
 	wait_queue_head_t thread_wq;
 	struct request_queue *rq;
 	spinlock_t queue_lock;
+#ifdef MTDBLOCK_THREAD_SYNC
+	wait_queue_head_t sync_wq;
+	int req_sync;
+#endif
 };
 
 static int do_blktrans_request(struct mtd_blktrans_ops *tr,
@@ -40,7 +48,8 @@ static int do_blktrans_request(struct mtd_blktrans_ops *tr,
 			       struct request *req)
 {
 	unsigned long block, nsect;
-	char *buf;
+	char *buf, *fbuf;
+	int ret;
 
 	block = req->sector << 9 >> tr->blkshift;
 	nsect = req->current_nr_sectors << 9 >> tr->blkshift;
@@ -55,10 +64,16 @@ static int do_blktrans_request(struct mtd_blktrans_ops *tr,
 
 	switch(rq_data_dir(req)) {
 	case READ:
-		for (; nsect > 0; nsect--, block++, buf += tr->blksize)
-			if (tr->readsect(dev, block, buf))
-				return 0;
-		return 1;
+		ret = 1;
+		for (; nsect > 0; nsect--, block++, buf += tr->blksize) {
+			if (tr->readsect(dev, block, buf)) {
+				ret = 0;
+				break;
+			}
+		}
+		for (fbuf = req->buffer; fbuf < buf; fbuf += PAGE_SIZE)
+			flush_dcache_page(virt_to_page(fbuf));
+		return ret;
 
 	case WRITE:
 		if (!tr->writesect)
@@ -108,6 +123,12 @@ static int mtd_blktrans_thread(void *arg)
 			add_wait_queue(&tr->blkcore_priv->thread_wq, &wait);
 			set_current_state(TASK_INTERRUPTIBLE);
 
+#ifdef MTDBLOCK_THREAD_SYNC
+			if (tr->blkcore_priv->req_sync & 0x10){
+				wake_up(&tr->blkcore_priv->sync_wq);
+			}
+			tr->blkcore_priv->req_sync = 1;
+#endif
 			spin_unlock_irq(rq->queue_lock);
 
 			schedule();
@@ -121,6 +142,9 @@ static int mtd_blktrans_thread(void *arg)
 		dev = req->rq_disk->private_data;
 		tr = dev->tr;
 
+#ifdef MTDBLOCK_THREAD_SYNC
+		tr->blkcore_priv->req_sync &= ~0x1;
+#endif
 		spin_unlock_irq(rq->queue_lock);
 
 		mutex_lock(&dev->lock);
@@ -174,6 +198,20 @@ static int blktrans_open(struct inode *i, struct file *f)
 	return ret;
 }
 
+#ifdef MTDBLOCK_THREAD_SYNC
+static void blktrans_thread_sync(struct mtd_blktrans_ops *tr)
+{
+	spin_lock_irq(tr->blkcore_priv->rq->queue_lock);
+	tr->blkcore_priv->req_sync |= 0x10;
+	
+	if(tr->blkcore_priv->req_sync & 1){
+		wake_up(&tr->blkcore_priv->thread_wq);
+	}
+	spin_unlock_irq(tr->blkcore_priv->rq->queue_lock);
+	wait_event(tr->blkcore_priv->sync_wq,!(tr->blkcore_priv->req_sync & 0x10));
+}
+#endif
+
 static int blktrans_release(struct inode *i, struct file *f)
 {
 	struct mtd_blktrans_dev *dev;
@@ -183,6 +221,9 @@ static int blktrans_release(struct inode *i, struct file *f)
 	dev = i->i_bdev->bd_disk->private_data;
 	tr = dev->tr;
 
+#ifdef MTDBLOCK_THREAD_SYNC
+	blktrans_thread_sync(tr);
+#endif
 	if (tr->release)
 		ret = tr->release(dev);
 
@@ -209,13 +250,26 @@ static int blktrans_ioctl(struct inode *inode, struct file *file,
 {
 	struct mtd_blktrans_dev *dev = inode->i_bdev->bd_disk->private_data;
 	struct mtd_blktrans_ops *tr = dev->tr;
+	int rc = 0;
 
 	switch (cmd) {
 	case BLKFLSBUF:
+#ifdef MTDBLOCK_THREAD_SYNC
+		blktrans_thread_sync(tr);
+#endif
 		if (tr->flush)
-			return tr->flush(dev);
+			rc = tr->flush(dev);
+#ifdef CONFIG_SUSPEND_TO_MTD
+		/*
+		 * flush block device's internal state (for example,
+		 * logical-physical mappings) See
+		 * SNAPSHOT_ATOMIC_SNAPSHOT in snapshot_ioctl().
+		 */
+		if (arg == 0xffffffff && rc == 0 && tr->rescan)
+			rc = tr->rescan(dev);
+#endif
 		/* The core code did the work, we had nothing to do. */
-		return 0;
+		return rc;
 	default:
 		return -ENOTTY;
 	}
@@ -390,6 +444,9 @@ int register_mtd_blktrans(struct mtd_blktrans_ops *tr)
 	spin_lock_init(&tr->blkcore_priv->queue_lock);
 	init_completion(&tr->blkcore_priv->thread_dead);
 	init_waitqueue_head(&tr->blkcore_priv->thread_wq);
+#ifdef MTDBLOCK_THREAD_SYNC
+	init_waitqueue_head(&tr->blkcore_priv->sync_wq);
+#endif
 
 	tr->blkcore_priv->rq = blk_init_queue(mtd_blktrans_request, &tr->blkcore_priv->queue_lock);
 	if (!tr->blkcore_priv->rq) {

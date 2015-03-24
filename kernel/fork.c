@@ -49,6 +49,7 @@
 #include <linux/delayacct.h>
 #include <linux/taskstats_kern.h>
 #include <linux/random.h>
+#include <linux/ltt-facilities.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -68,6 +69,7 @@ int max_threads;		/* tunable limit on nr_threads */
 DEFINE_PER_CPU(unsigned long, process_counts) = 0;
 
 __cacheline_aligned DEFINE_RWLOCK(tasklist_lock);  /* outer */
+EXPORT_SYMBOL(tasklist_lock);
 
 int nr_processes(void)
 {
@@ -1092,6 +1094,16 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->curr_chain_key = 0;
 	p->lockdep_recursion = 0;
 #endif
+#ifdef CONFIG_NETCPURATE
+	p->cpu.stime = p->cpu.utime = 0;
+	p->cpu.ntime = 0;
+	p->cpu.nnum = -1;
+
+	p->cpu.astime = 0;
+	p->cpu.asflag = 0;
+	p->cpu.ltime_max = p->cpu.ltime_min = p->cpu.ltime_sum = 0;
+	p->cpu.lnum = 0;
+#endif
 
 #ifdef CONFIG_DEBUG_MUTEXES
 	p->blocked_on = NULL; /* not blocked yet */
@@ -1149,6 +1161,13 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	 * of CLONE_PTRACE.
 	 */
 	clear_tsk_thread_flag(p, TIF_SYSCALL_TRACE);
+#ifdef CONFIG_MARKERS
+	/*
+	 * Syscall tracing must always be turned on when markers are enabled.
+	 * Use the syscall audit thread flag for now, as it is never cleared.
+	 */
+	set_tsk_thread_flag(p, TIF_SYSCALL_AUDIT);
+#endif
 #ifdef TIF_SYSCALL_EMU
 	clear_tsk_thread_flag(p, TIF_SYSCALL_EMU);
 #endif
@@ -1157,6 +1176,20 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	   These must match for thread signalling to apply */
 	p->parent_exec_id = p->self_exec_id;
 
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+	if (clone_flags & CLONE_THREAD)
+		memset(p->ltt_facilities, 0, sizeof(p->ltt_facilities));
+	else {
+		int i;
+		for (i = 0; i < LTT_FAC_PER_PROCESS; i++) {
+			p->ltt_facilities[i] = current->ltt_facilities[i];
+			if (p->ltt_facilities[i] != 0)
+				ltt_facility_ref(p->ltt_facilities[i]);
+		}
+	}
+
+#endif //CONFIG_LTT_USERSPACE_GENERIC
+	
 	/* ok, now we should be set up.. */
 	p->exit_signal = (clone_flags & CLONE_THREAD) ? -1 : (clone_flags & CSIGNAL);
 	p->pdeath_signal = 0;
@@ -1216,7 +1249,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		spin_unlock(&current->sighand->siglock);
 		write_unlock_irq(&tasklist_lock);
 		retval = -ERESTARTNOINTR;
-		goto bad_fork_cleanup_namespaces;
+		goto bad_fork_cleanup_ltt_facilities;
 	}
 
 	if (clone_flags & CLONE_THREAD) {
@@ -1264,6 +1297,18 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	proc_fork_connector(p);
 	return p;
 
+bad_fork_cleanup_ltt_facilities:
+#ifdef CONFIG_LTT_USERSPACE_GENERIC
+		{
+			int i;
+			for (i = 0; i < LTT_FAC_PER_PROCESS; i++) {
+				if (p->ltt_facilities[i] == 0)
+					break;
+				WARN_ON(ltt_facility_unregister(
+							p->ltt_facilities[i]));
+			}
+		}
+#endif //CONFIG_LTT_USERSPACE_GENERIC
 bad_fork_cleanup_namespaces:
 	exit_task_namespaces(p);
 bad_fork_cleanup_keys:
@@ -1375,6 +1420,9 @@ long do_fork(unsigned long clone_flags,
 	 */
 	if (!IS_ERR(p)) {
 		struct completion vfork;
+
+		MARK(kernel_process_fork, "%d %d %d",
+			current->pid, p->pid, p->tgid);
 
 		if (clone_flags & CLONE_VFORK) {
 			p->vfork_done = &vfork;

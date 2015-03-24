@@ -57,6 +57,9 @@ struct scsi_cmnd {
 	int retries;
 	int allowed;
 	int timeout_per_command;
+#ifdef CONFIG_USB_STORAGE_REMOVABLE_ENHANCEMENT
+	int timeout_retry;
+#endif
 
 	unsigned char cmd_len;
 	enum dma_data_direction sc_data_direction;

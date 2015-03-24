@@ -467,6 +467,11 @@ static int bit_xfer(struct i2c_adapter *i2c_adap,
 	
 	int i,ret;
 	unsigned short nak_ok;
+	if (adap->pre_xfer) {
+		ret = adap->pre_xfer(i2c_adap);
+		if (ret < 0)
+			return ret;
+	}
 
 	i2c_start(adap);
 	for (i=0;i<num;i++) {
@@ -480,27 +485,37 @@ static int bit_xfer(struct i2c_adapter *i2c_adap,
 			if ((ret != 0) && !nak_ok) {
 			    DEB2(printk(KERN_DEBUG "i2c-algo-bit.o: NAK from device addr %2.2x msg #%d\n"
 					,msgs[i].addr,i));
-			    return (ret<0) ? ret : -EREMOTEIO;
+			    goto bailout;
 			}
 		}
 		if (pmsg->flags & I2C_M_RD ) {
 			/* read bytes into buffer*/
 			ret = readbytes(i2c_adap, pmsg);
 			DEB2(printk(KERN_DEBUG "i2c-algo-bit.o: read %d bytes.\n",ret));
-			if (ret < pmsg->len ) {
-				return (ret<0)? ret : -EREMOTEIO;
+			if (ret < pmsg->len) {
+				if (ret >= 0)
+					ret = -EREMOTEIO;
+				goto bailout;
 			}
 		} else {
 			/* write bytes from buffer */
 			ret = sendbytes(i2c_adap, pmsg);
 			DEB2(printk(KERN_DEBUG "i2c-algo-bit.o: wrote %d bytes.\n",ret));
-			if (ret < pmsg->len ) {
-				return (ret<0) ? ret : -EREMOTEIO;
+			if (ret < pmsg->len) {
+				if (ret >= 0)
+					ret = -EREMOTEIO;
+				goto bailout;
 			}
 		}
 	}
+	ret = i;
+
+bailout:
 	i2c_stop(adap);
-	return num;
+
+	if (adap->post_xfer)
+		adap->post_xfer(i2c_adap);
+	return ret;
 }
 
 static u32 bit_func(struct i2c_adapter *adap)

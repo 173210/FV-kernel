@@ -396,8 +396,10 @@ struct ohci_hcd {
 #define	OHCI_QUIRK_INITRESET	0x04			/* SiS, OPTi, ... */
 #define	OHCI_BIG_ENDIAN		0x08			/* big endian HC */
 #define	OHCI_QUIRK_ZFMICRO	0x10			/* Compaq ZFMicro chipset*/
+#define	OHCI_QUIRK_NEC		0x20			/* NEC */
 	// there are also chip quirks/bugs in init logic
 
+ 	struct work_struct	nec_work;	/* Worker for NEC quirk */
 };
 
 /* convert between an hcd pointer and the corresponding ohci_hcd */

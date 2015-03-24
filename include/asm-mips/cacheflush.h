@@ -48,6 +48,15 @@ static inline void flush_dcache_page(struct page *page)
 #define flush_dcache_mmap_lock(mapping)		do { } while (0)
 #define flush_dcache_mmap_unlock(mapping)	do { } while (0)
 
+#define ARCH_HAS_FLUSH_ANON_PAGE
+extern void __flush_anon_page(struct page *, unsigned long);
+static inline void flush_anon_page(struct vm_area_struct *vma,
+	struct page *page, unsigned long vmaddr)
+{
+	if (cpu_has_dc_aliases && PageAnon(page))
+		__flush_anon_page(page, vmaddr);
+}
+
 static inline void flush_icache_page(struct vm_area_struct *vma,
 	struct page *page)
 {
@@ -55,7 +64,7 @@ static inline void flush_icache_page(struct vm_area_struct *vma,
 
 extern void (*flush_icache_range)(unsigned long start, unsigned long end);
 #define flush_cache_vmap(start, end)		flush_cache_all()
-#define flush_cache_vunmap(start, end)		flush_cache_all()
+#define flush_cache_vunmap(start, end)		__flush_cache_all()
 
 extern void copy_to_user_page(struct vm_area_struct *vma,
 	struct page *page, unsigned long vaddr, void *dst, const void *src,
@@ -69,6 +78,7 @@ extern void (*flush_cache_sigtramp)(unsigned long addr);
 extern void (*flush_icache_all)(void);
 extern void (*local_flush_data_cache_page)(void * addr);
 extern void (*flush_data_cache_page)(unsigned long addr);
+extern void (*local_flush_cache_all)(void);
 
 /*
  * This flag is used to indicate that the page pointed to by a pte
@@ -85,5 +95,8 @@ extern void (*flush_data_cache_page)(unsigned long addr);
 
 /* Run kernel code uncached, useful for cache probing functions. */
 unsigned long __init run_uncached(void *func);
+
+extern void *kmap_coherent(struct page *page, unsigned long addr);
+extern void kunmap_coherent(struct page *page);
 
 #endif /* _ASM_CACHEFLUSH_H */

@@ -33,6 +33,9 @@
 static struct snapshot_data {
 	struct snapshot_handle handle;
 	int swap;
+#ifdef CONFIG_SUSPEND_TO_MTD
+	struct block_device *swap_bdev;
+#endif
 	struct bitmap_page *bitmap;
 	int mode;
 	char frozen;
@@ -179,11 +182,31 @@ static int snapshot_ioctl(struct inode *inode, struct file *filp,
 		error = swsusp_shrink_memory();
 		if (!error) {
 			suspend_console();
+#ifdef CONFIG_SUSPEND_TO_MTD
+			ioctl_by_bdev(data->swap_bdev, BLKFLSBUF, 0);
+#endif
 			error = device_suspend(PMSG_FREEZE);
 			if (!error) {
 				in_suspend = 1;
+#ifdef CONFIG_SNAPSHOT_BOOT
+				do_snapshot_boot = 0;
+#endif
 				error = swsusp_suspend();
+#ifdef CONFIG_SNAPSHOT_BOOT
+				if (do_snapshot_boot)
+					in_suspend = 0;
+#endif
 				device_resume();
+#ifdef CONFIG_SUSPEND_TO_MTD
+				/*
+				 * flush block device's internal state
+				 * (for example, logical-physical
+				 * mappings)
+				 */
+				if (!in_suspend)
+					ioctl_by_bdev(data->swap_bdev,
+						      BLKFLSBUF, 0xffffffff);
+#endif
 			}
 			resume_console();
 		}
@@ -245,7 +268,7 @@ static int snapshot_ioctl(struct inode *inode, struct file *filp,
 		offset = alloc_swapdev_block(data->swap, data->bitmap);
 		if (offset) {
 			offset <<= PAGE_SHIFT;
-			error = put_user(offset, (sector_t __user *)arg);
+			error = put_user(offset, (loff_t __user *)arg);
 		} else {
 			error = -ENOSPC;
 		}
@@ -268,8 +291,13 @@ static int snapshot_ioctl(struct inode *inode, struct file *filp,
 			 * so we need to recode them
 			 */
 			if (old_decode_dev(arg)) {
+#ifdef CONFIG_SUSPEND_TO_MTD
+				data->swap = swap_type_of(old_decode_dev(arg),
+							0, &data->swap_bdev);
+#else
 				data->swap = swap_type_of(old_decode_dev(arg),
 							0, NULL);
+#endif
 				if (data->swap < 0)
 					error = -ENODEV;
 			} else {
@@ -371,7 +399,12 @@ static int snapshot_ioctl(struct inode *inode, struct file *filp,
 			swdev = old_decode_dev(swap_area.dev);
 			if (swdev) {
 				offset = swap_area.offset;
+#ifdef CONFIG_SUSPEND_TO_MTD
+				data->swap = swap_type_of(swdev, offset,
+							  &data->swap_bdev);
+#else
 				data->swap = swap_type_of(swdev, offset, NULL);
+#endif
 				if (data->swap < 0)
 					error = -ENODEV;
 			} else {
@@ -380,6 +413,13 @@ static int snapshot_ioctl(struct inode *inode, struct file *filp,
 			}
 		}
 		break;
+
+#ifdef CONFIG_SNAPSHOT_BOOT
+	case SNAPSHOT_GET_SSBOOT_ENTRY:
+		error = put_user((unsigned long)swsusp_arch_resume_snapshot,
+				 (u64 __user *)arg);
+		break;
+#endif
 
 	default:
 		error = -ENOTTY;

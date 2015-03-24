@@ -51,6 +51,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	{"NAND 32MiB 3,3V 16-bit",	0x55, 512, 32, 0x4000, NAND_BUSWIDTH_16},
 
 	{"NAND 64MiB 1,8V 8-bit",	0x36, 512, 64, 0x4000, 0},
+	{"NAND 64MiB 3,3V 8-bit", 	0x66, 512, 64, 0x4000, 0},
 	{"NAND 64MiB 3,3V 8-bit",	0x76, 512, 64, 0x4000, 0},
 	{"NAND 64MiB 1,8V 16-bit",	0x46, 512, 64, 0x4000, NAND_BUSWIDTH_16},
 	{"NAND 64MiB 3,3V 16-bit",	0x56, 512, 64, 0x4000, NAND_BUSWIDTH_16},
@@ -81,6 +82,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	/* 1 Gigabit */
 	{"NAND 128MiB 1,8V 8-bit",	0xA1, 0, 128, 0, LP_OPTIONS},
 	{"NAND 128MiB 3,3V 8-bit",	0xF1, 0, 128, 0, LP_OPTIONS},
+	{"NAND 128MiB 3,3V 8-bit",	0xD1, 0, 128, 0, LP_OPTIONS},
 	{"NAND 128MiB 1,8V 16-bit",	0xB1, 0, 128, 0, LP_OPTIONS16},
 	{"NAND 128MiB 3,3V 16-bit",	0xC1, 0, 128, 0, LP_OPTIONS16},
 
@@ -137,11 +139,33 @@ struct nand_manufacturers nand_manuf_ids[] = {
 	{NAND_MFR_RENESAS, "Renesas"},
 	{NAND_MFR_STMICRO, "ST Micro"},
 	{NAND_MFR_HYNIX, "Hynix"},
+	{NAND_MFR_INFINION, "Infinion"},
 	{0x0, "Unknown"}
+};
+
+/*
+ *	Access Timing list
+ */
+struct nand_access_timing nand_access_timing_ids[] = {
+	{NAND_MFR_TOSHIBA,  0x75, -1, -1,     15, 35, 50 },
+	{NAND_MFR_TOSHIBA,  0x76, -1, -1,     15, 35, 50 },
+	{NAND_MFR_TOSHIBA,  0x79, -1, -1,     15, 35, 50 },
+	{NAND_MFR_TOSHIBA,  0xd1, -1, -1,     10, 12, 10 },
+	{NAND_MFR_TOSHIBA,  0xda, -1, -1,     10, 12, 10 },
+	{NAND_MFR_SAMSUNG,  0x75, -1, -1,     15, 35, 10 },
+	{NAND_MFR_SAMSUNG,  0x76, 0xa5, 0xc0, 15, 35, 10 }, // B version
+	{NAND_MFR_SAMSUNG,  0x76, 0x5a, 0x3f, 15, 21, 10 }, // C version
+	{NAND_MFR_STMICRO,  0x75, -1, -1,     15, 35, 10 },
+	{NAND_MFR_STMICRO,  0x76, -1, -1,     15, 35, 10 },
+	{NAND_MFR_INFINION, 0x66, -1, -1,     15, 25, 50 },
+	{NAND_MFR_HYNIX,    0x75, -1, -1,     15, 35, 10 },
+	{NAND_MFR_HYNIX,    0x76, -1, -1,     15, 35, 10 },
+	{0x0, 0x0, -1, -1, 0, 0, 0}
 };
 
 EXPORT_SYMBOL(nand_manuf_ids);
 EXPORT_SYMBOL(nand_flash_ids);
+EXPORT_SYMBOL(nand_access_timing_ids);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Thomas Gleixner <tglx@linutronix.de>");

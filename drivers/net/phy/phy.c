@@ -223,7 +223,7 @@ void phy_sanitize_settings(struct phy_device *phydev)
 
 	/* Sanitize settings based on PHY capabilities */
 	if ((features & SUPPORTED_Autoneg) == 0)
-		phydev->autoneg = 0;
+		phydev->autoneg = AUTONEG_DISABLE;
 
 	idx = phy_find_valid(phy_find_setting(phydev->speed, phydev->duplex),
 			features);
@@ -317,7 +317,8 @@ int phy_mii_ioctl(struct phy_device *phydev,
 	switch (cmd) {
 	case SIOCGMIIPHY:
 		mii_data->phy_id = phydev->addr;
-		break;
+		/* fall through */
+
 	case SIOCGMIIREG:
 		mii_data->val_out = phy_read(phydev, mii_data->reg_num);
 		break;
@@ -329,7 +330,7 @@ int phy_mii_ioctl(struct phy_device *phydev,
 		if (mii_data->phy_id == phydev->addr) {
 			switch(mii_data->reg_num) {
 			case MII_BMCR:
-				if (val & (BMCR_RESET|BMCR_ANENABLE))
+				if ((val & (BMCR_RESET|BMCR_ANENABLE)) == 0)
 					phydev->autoneg = AUTONEG_DISABLE;
 				else
 					phydev->autoneg = AUTONEG_ENABLE;
@@ -337,6 +338,12 @@ int phy_mii_ioctl(struct phy_device *phydev,
 					phydev->duplex = DUPLEX_FULL;
 				else
 					phydev->duplex = DUPLEX_HALF;
+                                if ((!phydev->autoneg) &&
+				    (val & BMCR_SPEED1000))
+					phydev->speed = SPEED_1000;
+				else if ((!phydev->autoneg) &&
+					 (val & BMCR_SPEED100))
+					phydev->speed = SPEED_100;
 				break;
 			case MII_ADVERTISE:
 				phydev->advertising = val;
@@ -354,10 +361,14 @@ int phy_mii_ioctl(struct phy_device *phydev,
 				&& phydev->drv->config_init)
 			phydev->drv->config_init(phydev);
 		break;
+
+	default:
+		return -EOPNOTSUPP;
 	}
 
 	return 0;
 }
+EXPORT_SYMBOL(phy_mii_ioctl);
 
 /* phy_start_aneg
  *
@@ -463,7 +474,6 @@ static void phy_force_reduction(struct phy_device *phydev)
 			DUPLEX_FULL == phydev->duplex ?
 			"FULL" : "HALF");
 }
-
 
 /* phy_error:
  *

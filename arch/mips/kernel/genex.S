@@ -20,6 +20,7 @@
 #include <asm/stackframe.h>
 #include <asm/war.h>
 #include <asm/page.h>
+#include <asm/thread_info.h>
 
 #define PANIC_PIC(msg)					\
 		.set push;				\
@@ -126,8 +127,74 @@ handle_vcei:
 
 	__FINIT
 
+	.align	5	/* 32 byte rollback region */
+LEAF(r4k_wait)
+	.set	push
+	.set	noreorder
+	/* start of rollback region */
+	LONG_L	t0, TI_FLAGS($28)
+	nop
+	andi	t0, _TIF_NEED_RESCHED
+	bnez	t0, 1f
+	 nop
+	nop
+	nop
+	.set	mips3
+	wait
+	/* end of rollback region (the region size must be power of two) */
+	.set	pop
+1:
+	jr	ra
+	END(r4k_wait)
+
+	.macro	BUILD_ROLLBACK_PROLOGUE handler
+	FEXPORT(rollback_\handler)
+	.set	push
+	.set	noat
+	MFC0	k0, CP0_EPC
+	PTR_LA	k1, r4k_wait
+	ori	k0, 0x1f	/* 32 byte rollback region */
+	xori	k0, 0x1f
+	bne	k0, k1, 9f
+	MTC0	k0, CP0_EPC
+9:
+	.set pop
+	.endm
+
 	.align  5
+BUILD_ROLLBACK_PROLOGUE handle_int
 NESTED(handle_int, PT_SIZE, sp)
+#ifdef CONFIG_TRACE_IRQFLAGS
+	/*
+	 * Check to see if the interrupted code has just disabled
+	 * interrupts and ignore this interrupt for now if so.
+	 *
+	 * local_irq_disable() disables interrupts and then calls
+	 * trace_hardirqs_off() to track the state. If an interrupt is taken
+	 * after interrupts are disabled but before the state is updated
+	 * it will appear to restore_all that it is incorrectly returning with
+	 * interrupts disabled
+	 */
+	.set	push
+	.set	noat
+	mfc0	k0, CP0_STATUS
+#if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
+	and	k0, ST0_IEP
+	bnez	k0, 1f
+
+	mfc0	k0, EP0_EPC
+	.set	noreorder
+	j	k0
+	rfe
+#else
+	and	k0, ST0_IE
+	bnez	k0, 1f
+
+	eret
+#endif
+1:
+	.set pop
+#endif
 	SAVE_ALL
 	CLI
 	TRACE_IRQS_OFF
@@ -170,6 +237,7 @@ NESTED(except_vec_ejtag_debug, 0, sp)
  * This prototype is copied to ebase + n*IntCtl.VS and patched
  * to invoke the handler
  */
+BUILD_ROLLBACK_PROLOGUE except_vec_vi
 NESTED(except_vec_vi, 0, sp)
 	SAVE_SOME
 	SAVE_AT

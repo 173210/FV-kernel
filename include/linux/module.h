@@ -356,6 +356,9 @@ struct module
 	/* The command line arguments (may be mangled).  People like
 	   keeping pointers to this stuff */
 	char *args;
+
+	const struct __mark_marker *markers;
+	unsigned int num_markers;
 };
 
 /* FIXME: It'd be nice to isolate modules during init, too, so they
@@ -469,6 +472,7 @@ extern void print_modules(void);
 struct device_driver;
 void module_add_driver(struct module *, struct device_driver *);
 void module_remove_driver(struct device_driver *);
+extern void list_modules(void);
 
 #else /* !CONFIG_MODULES... */
 #define EXPORT_SYMBOL(sym)

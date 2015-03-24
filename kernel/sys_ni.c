@@ -112,6 +112,8 @@ cond_syscall(sys_vm86old);
 cond_syscall(sys_vm86);
 cond_syscall(compat_sys_ipc);
 cond_syscall(compat_sys_sysctl);
+cond_syscall(sys_ltt_trace_generic);
+cond_syscall(sys_ltt_register_generic);
 
 /* arch-specific weak syscall entries */
 cond_syscall(sys_pciconfig_read);

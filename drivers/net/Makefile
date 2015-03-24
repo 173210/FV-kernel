@@ -69,6 +69,9 @@ obj-$(CONFIG_VIA_RHINE) += via-rhine.o
 obj-$(CONFIG_VIA_VELOCITY) += via-velocity.o
 obj-$(CONFIG_ADAPTEC_STARFIRE) += starfire.o
 obj-$(CONFIG_RIONET) += rionet.o
+obj-$(CONFIG_TXBOARD_OBNE_NET) += txboard-obne.o 8390.o
+obj-$(CONFIG_SMSC94XX_NET) += smsc94xx_eth.o
+obj-$(CONFIG_TXSSETH) += txss_eth.o txss_ethtool.o
 
 #
 # end link order section
@@ -196,6 +199,7 @@ obj-$(CONFIG_SMC91X) += smc91x.o
 obj-$(CONFIG_SMC911X) += smc911x.o
 obj-$(CONFIG_DM9000) += dm9000.o
 obj-$(CONFIG_FEC_8XX) += fec_8xx/
+obj-$(CONFIG_TC35815_1) += tc35815_1.o
 
 obj-$(CONFIG_MACB) += macb.o
 
@@ -213,6 +217,7 @@ obj-$(CONFIG_ETRAX_ETHERNET) += cris/
 obj-$(CONFIG_ENP2611_MSF_NET) += ixp2000/
 
 obj-$(CONFIG_NETCONSOLE) += netconsole.o
+obj-$(CONFIG_NETCPURATE) += netcpurate.o
 
 obj-$(CONFIG_FS_ENET) += fs_enet/
 

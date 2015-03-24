@@ -490,6 +490,8 @@ static void __free_pages_ok(struct page *page, unsigned int order)
 	int i;
 	int reserved = 0;
 
+	MARK(mm_page_free, "%u %p", order, page_address(page));
+
 	for (i = 0 ; i < (1 << order) ; ++i)
 		reserved += free_pages_check(page + i);
 	if (reserved)
@@ -1386,6 +1388,7 @@ fastcall unsigned long __get_free_pages(gfp_t gfp_mask, unsigned int order)
 	page = alloc_pages(gfp_mask, order);
 	if (!page)
 		return 0;
+	MARK(mm_page_alloc, "%u %p", order, page_address(page));
 	return (unsigned long) page_address(page);
 }
 

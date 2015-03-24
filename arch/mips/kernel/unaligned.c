@@ -496,14 +496,19 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	unsigned int __user *pc;
 	mm_segment_t seg;
 
+	MARK(kernel_arch_trap_entry, "%d %ld", CAUSE_EXCCODE(regs->cp0_cause),
+		instruction_pointer(regs));
+
 	/*
 	 * Address errors may be deliberately induced by the FPU emulator to
 	 * retake control of the CPU after executing the instruction in the
 	 * delay slot of an emulated branch.
 	 */
 	/* Terminate if exception was recognized as a delay slot return */
-	if (do_dsemulret(regs))
+	if (do_dsemulret(regs)) {
+		MARK(kernel_arch_trap_exit, MARK_NOARGS);
 		return;
+	}
 
 	/* Otherwise handle as normal */
 
@@ -537,6 +542,8 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	}
 	set_fs(seg);
 
+	MARK(kernel_arch_trap_exit, MARK_NOARGS);
+
 	return;
 
 sigbus:
@@ -546,4 +553,6 @@ sigbus:
 	/*
 	 * XXX On return from the signal handler we should advance the epc
 	 */
+
+	MARK(kernel_arch_trap_exit, MARK_NOARGS);
 }

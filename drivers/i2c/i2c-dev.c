@@ -155,8 +155,7 @@ static ssize_t i2cdev_write (struct file *file, const char __user *buf, size_t c
 	return ret;
 }
 
-static int i2cdev_ioctl(struct inode *inode, struct file *file,
-		unsigned int cmd, unsigned long arg)
+static long i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct i2c_client *client = (struct i2c_client *)file->private_data;
 	struct i2c_rdwr_ioctl_data rdwr_arg;
@@ -238,6 +237,16 @@ static int i2cdev_ioctl(struct inode *inode, struct file *file,
 				res = -ENOMEM;
 				break;
 			}
+#ifdef CONFIG_I2C_TC9041X
+			if(rdwr_pa[i].flags & I2C_M_RD) {
+				if(copy_from_user(rdwr_pa[i].buf,
+						  data_ptrs[i],3)) {
+					++i; /* Needs to be kfreed too */
+					res = -EFAULT;
+					break;
+				}
+			} else
+#endif
 			if(copy_from_user(rdwr_pa[i].buf,
 				data_ptrs[i],
 				rdwr_pa[i].len)) {
@@ -397,7 +406,7 @@ static struct file_operations i2cdev_fops = {
 	.llseek		= no_llseek,
 	.read		= i2cdev_read,
 	.write		= i2cdev_write,
-	.ioctl		= i2cdev_ioctl,
+	.unlocked_ioctl		= i2cdev_ioctl,
 	.open		= i2cdev_open,
 	.release	= i2cdev_release,
 };

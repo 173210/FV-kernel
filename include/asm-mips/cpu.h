@@ -68,6 +68,7 @@
 #define PRID_IMP_RM9000		0x3400
 #define PRID_IMP_R5432		0x5400
 #define PRID_IMP_R5500		0x5500
+#define PRID_IMP_VR5600		0x5600
 
 #define PRID_IMP_UNKNOWN	0xff00
 
@@ -200,7 +201,8 @@
 #define CPU_SB1A		62
 #define CPU_74K			63
 #define CPU_R14000		64
-#define CPU_LAST		64
+#define CPU_VR5600		65
+#define CPU_LAST		66
 
 /*
  * ISA Level encodings
@@ -246,6 +248,7 @@
 #define MIPS_CPU_PREFETCH	0x00080000 /* CPU has usable prefetch */
 #define MIPS_CPU_VINT		0x00100000 /* CPU supports MIPSR2 vectored interrupts */
 #define MIPS_CPU_VEIC		0x00200000 /* CPU supports MIPSR2 external interrupt controller mode */
+#define MIPS_CPU_ULRI		0x00400000 /* CPU has ULRI feature */
 
 /*
  * CPU ASE encodings

@@ -40,6 +40,7 @@
 #include <asm/div64.h>
 #include <asm/timex.h>
 #include <asm/io.h>
+#include <asm/irq_regs.h>
 
 u64 jiffies_64 __cacheline_aligned_in_smp = INITIAL_JIFFIES;
 
@@ -256,6 +257,8 @@ static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 		i = (expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK;
 		vec = base->tv5.vec + i;
 	}
+	MARK(kernel_timer_set, "%lu %p %lu",
+		expires, timer->function, timer->data);
 	/*
 	 * Timers are FIFO:
 	 */
@@ -912,7 +915,9 @@ static int timekeeping_resume(struct sys_device *dev)
 
 	write_seqlock_irqsave(&xtime_lock, flags);
 	/* restart the last cycle value */
+#ifndef CONFIG_ADJUST_MONOTONIC_TIME
 	clock->cycle_last = clocksource_read(clock);
+#endif
 	clock->error = 0;
 	timekeeping_suspended = 0;
 	write_sequnlock_irqrestore(&xtime_lock, flags);
@@ -1209,6 +1214,12 @@ void do_timer(unsigned long ticks)
 {
 	jiffies_64 += ticks;
 	update_times(ticks);
+	MARK(kernel_timer_update_time,
+	"%8b %*.*r %*.*r",
+		jiffies_64,
+		sizeof(xtime), __alignof__(xtime), &xtime,
+		sizeof(wall_to_monotonic), __alignof__(wall_to_monotonic),
+		&wall_to_monotonic);
 }
 
 #ifdef __ARCH_WANT_SYS_ALARM
@@ -1290,7 +1301,9 @@ asmlinkage long sys_getegid(void)
 
 static void process_timeout(unsigned long __data)
 {
-	wake_up_process((struct task_struct *)__data);
+	struct task_struct *task = (struct task_struct *)__data;
+	MARK(kernel_timer_timeout, "%d", task->pid);
+	wake_up_process(task);
 }
 
 /**
@@ -1388,6 +1401,12 @@ EXPORT_SYMBOL(schedule_timeout_uninterruptible);
 /* Thread ID - the internal kernel "pid" */
 asmlinkage long sys_gettid(void)
 {
+#ifdef CONFIG_KMC_PATCH
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ { */
+#include "kmc.h"
+__KMC_SYS_GETPID();
+/* @@@ KMC_PARTNER_LINUX_SUPPORT_MODIFY @@@ } */
+#endif /* CONFIG_KMC_PATCH */
 	return current->pid;
 }
 

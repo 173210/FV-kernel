@@ -18,6 +18,10 @@ struct bcache_ops {
 	void (*bc_disable)(void);
 	void (*bc_wback_inv)(unsigned long page, unsigned long size);
 	void (*bc_inv)(unsigned long page, unsigned long size);
+#ifdef CONFIG_TXBOARD_CPU_SCACHE
+	void (*blast_i_bc)(void);
+	void (*blast_d_bc)(void);
+#endif
 };
 
 extern void indy_sc_init(void);
@@ -47,6 +51,20 @@ static inline void bc_inv(unsigned long page, unsigned long size)
 	bcops->bc_inv(page, size);
 }
 
+#ifdef CONFIG_TXBOARD_CPU_SCACHE
+static inline void blast_i_bc(void)
+{
+	bcops->blast_i_bc();
+}
+
+static inline void blast_d_bc(void)
+{
+	bcops->blast_d_bc();
+}
+#else
+#define blast_i_bc() do { } while (0)
+#define blast_d_bc() do { } while (0)
+#endif
 #else /* !defined(CONFIG_BOARD_SCACHE) */
 
 /* Not R4000 / R4400 / R4600 / R5000.  */
@@ -55,6 +73,8 @@ static inline void bc_inv(unsigned long page, unsigned long size)
 #define bc_disable() do { } while (0)
 #define bc_wback_inv(page, size) do { } while (0)
 #define bc_inv(page, size) do { } while (0)
+#define blast_i_bc() do { } while (0)
+#define blast_d_bc() do { } while (0)
 
 #endif /* !defined(CONFIG_BOARD_SCACHE) */
 

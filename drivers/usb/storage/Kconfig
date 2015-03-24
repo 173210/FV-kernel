@@ -31,6 +31,13 @@ config USB_STORAGE_DEBUG
 	  Say Y here in order to have the USB Mass Storage code generate
 	  verbose debugging messages.
 
+config USB_STORAGE_NO_WP_DETECT
+	bool "Don't check for Write-Protect"
+	depends on USB_STORAGE
+	help
+	  If you say Y here, the kernel will assume that all disk-like USB
+	  devices are write-enabled.
+
 config USB_STORAGE_DATAFAB
 	bool "Datafab Compact Flash Reader support (EXPERIMENTAL)"
 	depends on USB_STORAGE && EXPERIMENTAL
@@ -145,6 +152,33 @@ config USB_STORAGE_KARMA
 	  it to be mounted as an ordinary filesystem. Performing an eject
 	  on the resulting scsi device node returns the Karma to normal
 	  operation.
+
+config USB_STORAGE_REMOVABLE_ENHANCEMENT
+	bool "Enable removable media handling enhancement"
+	depends on USB_STORAGE
+	help
+	  This enables removable media handling enhancement.
+
+config USB_STORAGE_DELAY_USE_ENHANCEMENT
+	bool "Enable the per-port delay_use control"
+	depends on USB_STORAGE
+	help
+	  This enables the per-port delay_use control.
+	  Please note that this feature will affect the root-hub ports only.
+
+config USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB
+	bool "Enable the per-port delay_use control at hub"
+	depends on USB_STORAGE_DELAY_USE_ENHANCEMENT
+	default n
+	help
+	  This enables the per-port delay_use control a hub.
+
+config USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB_LEVEL
+	int "Hub level of Enable the per-port delay_use control."
+	depends on USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB
+	default "0"
+	help
+	  This enables the per-port delay_use control a hub at setting level.
 
 config USB_LIBUSUAL
 	bool "The shared table of common (or usual) storage devices"

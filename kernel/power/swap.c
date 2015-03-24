@@ -146,6 +146,11 @@ static int mark_swapfiles(sector_t start)
 	    !memcmp("SWAPSPACE2",swsusp_header.sig, 10)) {
 		memcpy(swsusp_header.orig_sig,swsusp_header.sig, 10);
 		memcpy(swsusp_header.sig,SWSUSP_SIG, 10);
+#ifdef CONFIG_SNAPSHOT_BOOT
+		/* write snapshot resume point address into image */
+		*(unsigned long *)((&swsusp_header.image) - 1) =
+			(unsigned long)swsusp_arch_resume_snapshot;
+#endif
 		swsusp_header.image = start;
 		error = bio_write_page(swsusp_resume_block,
 					&swsusp_header, NULL);

@@ -164,6 +164,21 @@ config MTD_CHAR
 	  memory chips, and also use ioctl() to obtain information about
 	  the device, or to erase parts of it.
 
+config MTD_CHAR_MEMGETREADCOUNT
+	bool "Enable ioctl MEMGETREADCOUNT for checking page read counts"
+	depends on MTD_CHAR && MTD_NAND
+	default n
+
+config MTD_CHAR_MEMSETFORCEERASE
+	bool "Enable ioctl MEMSETFORCEERASE for force erase BadBlocks"
+	depends on MTD_CHAR
+	default n
+
+config MTD_CHAR_MEMISLOCK
+	bool "Enable ioctl MEMISLOCK for checking lock status"
+	depends on MTD_CHAR
+	default n
+
 config MTD_BLKDEVS
 	tristate "Common interface to block layer for MTD 'translation layers'"
 	depends on MTD && BLOCK
@@ -203,6 +218,14 @@ config MTD_BLOCK_RO
 
 	  You do not need this option for use with the DiskOnChip devices. For
 	  those, enable NFTL support (CONFIG_NFTL) instead.
+
+config MTD_BLOCK_THREAD_SYNC
+	bool "Enable syncing mtdblockd thread"
+	depends on MTD_BLOCK && MTD
+	default n
+	help
+	  Wake up mtdblockd thread on closing or ioctl BLKFLSBUF. Then wait
+	  for reading request.
 
 config FTL
 	tristate "FTL (Flash Translation Layer) support"
@@ -291,6 +314,10 @@ source "drivers/mtd/devices/Kconfig"
 source "drivers/mtd/nand/Kconfig"
 
 source "drivers/mtd/onenand/Kconfig"
+
+source "drivers/mtd/ubi/Kconfig"
+
+source "drivers/mtd/bynd/Kconfig"
 
 endmenu
 

@@ -43,6 +43,8 @@ typedef	void fastcall (*irq_flow_handler_t)(unsigned int irq,
 #define IRQ_TYPE_LEVEL_LOW	0x00000008	/* Level low type */
 #define IRQ_TYPE_SENSE_MASK	0x0000000f	/* Mask of the above */
 #define IRQ_TYPE_PROBE		0x00000010	/* Probing in progress */
+#define IRQ_TYPE_UDLY_FLAG	0x00000020
+#define IRQ_TYPE_UDLY(x)	(IRQ_TYPE_UDLY_FLAG | (((x) & 0xffff)<<16))
 
 /* Internal flags */
 #define IRQ_INPROGRESS		0x00010000	/* IRQ handler active - do not enter! */

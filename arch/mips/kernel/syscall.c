@@ -273,9 +273,8 @@ asmlinkage int sys_set_thread_area(unsigned long addr)
 	struct thread_info *ti = task_thread_info(current);
 
 	ti->tp_value = addr;
-
-	/* If some future MIPS implementation has this register in hardware,
-	 * we will need to update it here (and in context switches).  */
+        if (cpu_has_userlocal)
+                write_c0_userlocal(addr);
 
 	return 0;
 }
@@ -314,6 +313,8 @@ asmlinkage int sys_ipc (unsigned int call, int first, int second,
 
 	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
+	
+	MARK(kernel_arch_ipc_call, "%u %d", call, first);
 
 	switch (call) {
 	case SEMOP:

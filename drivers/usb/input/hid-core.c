@@ -31,6 +31,8 @@
 #undef DEBUG
 #undef DEBUG_DATA
 
+#define IMPROVE_REPORTS_INIT
+
 #include <linux/usb.h>
 
 #include <linux/hid.h>
@@ -378,8 +380,15 @@ static void hid_ctrl(struct urb *urb)
 		case -EPROTO:		/* protocol error or unplug */
 		case -ECONNRESET:	/* unlink */
 		case -ENOENT:
+#ifdef IMPROVE_REPORTS_INIT
+			break;
+		case -EPIPE:		/* report not available */
+			hid->quirks |= HID_QUIRK_NOGET;
+			break;
+#else
 		case -EPIPE:		/* report not available */
 			break;
+#endif
 		default:		/* error */
 			warn("ctrl urb status %d received", urb->status);
 	}
@@ -555,8 +564,14 @@ void usbhid_init_reports(struct hid_device *hid)
 	struct usbhid_device *usbhid = hid->driver_data;
 	int err, ret;
 
-	list_for_each_entry(report, &hid->report_enum[HID_INPUT_REPORT].report_list, list)
+	list_for_each_entry(report, &hid->report_enum[HID_INPUT_REPORT].report_list, list) {
 		usbhid_submit_report(hid, report, USB_DIR_IN);
+#ifdef IMPROVE_REPORTS_INIT
+		usbhid_wait_io(hid);
+		if (hid->quirks & HID_QUIRK_NOGET);
+			break;
+#endif
+	}
 
 	list_for_each_entry(report, &hid->report_enum[HID_FEATURE_REPORT].report_list, list)
 		usbhid_submit_report(hid, report, USB_DIR_IN);

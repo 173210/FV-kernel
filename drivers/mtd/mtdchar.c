@@ -19,6 +19,10 @@
 
 #include <asm/uaccess.h>
 
+#if defined(CONFIG_MTD_NAND) || defined(CONFIG_MTD_NAND_MODULE)
+#include <linux/mtd/nand.h>
+#endif
+
 static struct class *mtd_class;
 
 static void mtd_notify_add(struct mtd_info* mtd)
@@ -600,6 +604,22 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		break;
 	}
 
+#ifdef CONFIG_MTD_CHAR_MEMISLOCK
+	case MEMISLOCK:
+	{
+		struct erase_info_user info;
+
+		if (copy_from_user(&info, argp, sizeof(info)))
+			return -EFAULT;
+
+		if (!mtd->islock)
+			ret = -EOPNOTSUPP;
+		else
+			return mtd->islock(mtd, info.start, info.length);
+		break;
+	}
+#endif
+
 	/* Legacy interface */
 	case MEMGETOOBSEL:
 	{
@@ -646,6 +666,34 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 			return mtd->block_markbad(mtd, offs);
 		break;
 	}
+
+#ifdef CONFIG_MTD_CHAR_MEMSETFORCEERASE
+	case MEMSETFORCEERASE:
+	{
+		int flag_force;
+		if (copy_from_user(&flag_force, argp, sizeof(int)))
+			return -EFAULT;
+		mtd->flag_force_erase_badblock = flag_force;
+		break;
+	}
+#endif
+
+#ifdef CONFIG_MTD_CHAR_MEMGETREADCOUNT
+	case MEMGETREADCOUNT:
+	{
+		struct nand_page_read_count buf;
+		struct nand_chip *chip = mtd->priv;
+		if(!chip || !chip->page_read_count_table)
+			return -EOPNOTSUPP;
+		if (copy_from_user(&buf, argp, sizeof(struct nand_page_read_count)))
+			return -EFAULT;
+		if ((buf.pageoffset + buf.pagenum) > (mtd->size / mtd->writesize))
+			return -EINVAL;
+		if (copy_to_user(buf.ptr_table, &chip->page_read_count_table[buf.pageoffset], (buf.pagenum * sizeof(u_int16_t))))
+			return -EFAULT;
+		break;
+	}
+#endif
 
 #if defined(CONFIG_MTD_OTP) || defined(CONFIG_MTD_ONENAND_OTP)
 	case OTPSELECT:
@@ -751,6 +799,85 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		file->f_pos = 0;
 		break;
 	}
+
+#if defined(CONFIG_MTD_NAND) || defined(CONFIG_MTD_NAND_MODULE)
+	case MEMGETERRSTAT:
+	{
+		struct nand_chip *chip = mtd->priv;
+		struct nand_errstat es;
+		struct nand_errstat_cmd *esc;
+		size_t count;
+		size_t size;
+
+		if (!chip->errstat_get)
+			return -ENOTTY;
+
+		if (copy_from_user(&es, argp, sizeof(struct nand_errstat)))
+			return -EFAULT;
+
+		ret = chip->errstat_get(mtd, es.state, &esc, &count);
+		if (ret < 0) {
+			break;
+		}
+
+		if ((es.count > 0) && (es.addr != NULL)) {
+			if (es.count < count)
+				return -ERANGE;
+
+			size = sizeof(struct nand_errstat_cmd) * count;
+			if (!access_ok(VERIFY_WRITE, es.addr, size))
+				return -EFAULT;
+
+			if (copy_to_user(es.addr, esc, size))
+				return -EFAULT;
+		}
+
+		es.count = count;
+
+		if (copy_to_user(argp, &es, sizeof(struct nand_errstat)))
+			return -EFAULT;
+		break;
+	}
+
+	case MEMSETERRSTAT:
+	{
+		struct nand_chip *chip = mtd->priv;
+		struct nand_errstat es;
+		struct nand_errstat_cmd *esc;
+		size_t size;
+
+		if (!chip->errstat_set)
+			return -ENOTTY;
+
+		if (argp == NULL) {
+			ret = chip->errstat_set(mtd, -1, NULL, 0);
+			break;
+		}
+
+		if (copy_from_user(&es, argp, sizeof(struct nand_errstat)))
+			return -EFAULT;
+
+		if (es.count > 0) {
+			size = sizeof(struct nand_errstat_cmd) * es.count;
+			if (!access_ok(VERIFY_READ, es.addr, size))
+				return -EFAULT;
+
+			esc = kmalloc(size + sizeof(struct nand_errstat_cmd), GFP_KERNEL);
+			if (!esc)
+				return -ENOMEM;
+
+			if (copy_from_user(esc, es.addr, size))
+				return -EFAULT;
+
+			esc[es.count].maf_id = -1;
+		} else {
+			esc = NULL;
+		}
+
+		ret = chip->errstat_set(mtd, es.state, esc, es.count);
+		break;
+	}
+#endif /* CONFIG_MTD_NAND || CONFIG_MTD_NAND_MODULE */
 
 	default:
 		ret = -ENOTTY;

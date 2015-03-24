@@ -74,6 +74,8 @@ extern int smbiod_register_server(struct smb_sb_info *server);
 extern void smbiod_unregister_server(struct smb_sb_info *server);
 extern void smbiod_flush(struct smb_sb_info *server);
 extern int smbiod_retry(struct smb_sb_info *server);
+extern void smbiod_lock_loop(void);
+extern void smbiod_unlock_loop(void);
 /* request.c */
 extern int smb_init_request_cache(void);
 extern void smb_destroy_request_cache(void);

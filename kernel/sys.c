@@ -33,6 +33,8 @@
 #include <linux/compat.h>
 #include <linux/syscalls.h>
 #include <linux/kprobes.h>
+#include <linux/ltt-facilities.h>
+#include <linux/ltt-tracer.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
@@ -2147,6 +2149,9 @@ asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 						sizeof(me->comm)-1) < 0)
 				return -EFAULT;
 			set_task_comm(me, ncomm);
+#ifdef CONFIG_LTT_TRACER
+			ltt_statedump_process(me);
+#endif
 			return 0;
 		}
 		case PR_GET_NAME: {

@@ -471,3 +471,5 @@ sys_call_table:
 	PTR	sys_kexec_load			/* 5270 */
 	PTR	sys_getcpu
 	PTR	sys_epoll_pwait
+	PTR	sys_ltt_trace_generic
+	PTR	sys_ltt_register_generic

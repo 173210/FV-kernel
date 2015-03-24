@@ -53,6 +53,8 @@ static inline cycles_t get_cycles (void)
 	return read_c0_count();
 }
 
+extern unsigned int mips_hpt_frequency;
+
 #endif /* __KERNEL__ */
 
 #endif /*  _ASM_TIMEX_H */

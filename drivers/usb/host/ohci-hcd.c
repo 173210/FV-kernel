@@ -36,6 +36,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/reboot.h>
+#include <linux/workqueue.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -80,6 +81,8 @@ static const char	hcd_name [] = "ohci_hcd";
 static void ohci_dump (struct ohci_hcd *ohci, int verbose);
 static int ohci_init (struct ohci_hcd *ohci);
 static void ohci_stop (struct usb_hcd *hcd);
+static int ohci_restart (struct ohci_hcd *ohci);
+static void ohci_quirk_nec_worker (struct work_struct *work);
 
 #include "ohci-hub.c"
 #include "ohci-dbg.c"
@@ -103,6 +106,14 @@ static int distrust_firmware = 1;
 module_param (distrust_firmware, bool, 0);
 MODULE_PARM_DESC (distrust_firmware,
 	"true to distrust firmware power/overcurrent setup");
+
+#define ENABLE_POWER_SWITCHING_COMPAT
+#ifdef ENABLE_POWER_SWITCHING_COMPAT
+/* Some boards don't support per-port power switching */
+static int power_switching = 0;
+module_param (power_switching, bool, 0);
+MODULE_PARM_DESC (power_switching, "true (not default) to switch port power");
+#endif
 
 /* Some boards leave IR set wrongly, since they fail BIOS/SMM handshakes */
 static int no_handshake = 0;
@@ -512,6 +523,12 @@ static int ohci_run (struct ohci_hcd *ohci)
 	(void) ohci_readl (ohci, &ohci->regs->control);
 	msleep(temp);
 	temp = roothub_a (ohci);
+#ifdef ENABLE_POWER_SWITCHING_COMPAT
+	if (power_switching) {
+		/* treat as RH_A_NPS is not set. */
+		temp &= ~(RH_A_NPS);
+	}
+#endif
 	if (!(temp & RH_A_NPS)) {
 		/* power down each port */
 		for (temp = 0; temp < ohci->num_ports; temp++)
@@ -606,6 +623,15 @@ retry:
 		temp |= RH_A_NOCP;
 		temp &= ~(RH_A_POTPGT | RH_A_NPS);
 		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
+#ifdef ENABLE_POWER_SWITCHING_COMPAT
+	} else if (power_switching) {
+		/* act like most external hubs:  use per-port power
+		 * switching and overcurrent reporting.
+		 */
+		temp &= ~(RH_A_NPS | RH_A_NOCP);
+		temp |= RH_A_PSM | RH_A_OCPM;
+		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
+#endif
 	} else if ((ohci->flags & OHCI_QUIRK_AMD756) || distrust_firmware) {
 		/* hub power always on; required for AMD-756 and some
 		 * Mac platforms.  ganged overcurrent reporting, if any.
@@ -660,9 +686,20 @@ static irqreturn_t ohci_irq (struct usb_hcd *hcd)
 	}
 
 	if (ints & OHCI_INTR_UE) {
-		disable (ohci);
-		ohci_err (ohci, "OHCI Unrecoverable Error, disabled\n");
 		// e.g. due to PCI Master/Target Abort
+		if (ohci->flags & OHCI_QUIRK_NEC) {
+			/* Workaround for a silicon bug in some NEC chips used
+			 * in Apple's PowerBooks. Adapted from Darwin code.
+			 */
+			ohci_err (ohci, "OHCI Unrecoverable Error, scheduling NEC chip restart\n");
+
+			ohci_writel (ohci, OHCI_INTR_UE, &regs->intrdisable);
+
+			schedule_work (&ohci->nec_work);
+		} else {
+			disable (ohci);
+			ohci_err (ohci, "OHCI Unrecoverable Error, disabled\n");
+		}
 
 		ohci_dump (ohci, 1);
 		ohci_usb_reset (ohci);
@@ -767,23 +804,16 @@ static void ohci_stop (struct usb_hcd *hcd)
 /*-------------------------------------------------------------------------*/
 
 /* must not be called from interrupt context */
-
-#ifdef	CONFIG_PM
-
 static int ohci_restart (struct ohci_hcd *ohci)
 {
 	int temp;
 	int i;
 	struct urb_priv *priv;
 
-	/* mark any devices gone, so they do nothing till khubd disconnects.
-	 * recycle any "live" eds/tds (and urbs) right away.
-	 * later, khubd disconnect processing will recycle the other state,
-	 * (either as disconnect/reconnect, or maybe someday as a reset).
-	 */
 	spin_lock_irq(&ohci->lock);
 	disable (ohci);
-	usb_root_hub_lost_power(ohci_to_hcd(ohci)->self.root_hub);
+
+	/* Recycle any "live" eds/tds (and urbs). */
 	if (!list_empty (&ohci->pending))
 		ohci_dbg(ohci, "abort schedule...\n");
 	list_for_each_entry (priv, &ohci->pending, pending) {
@@ -843,7 +873,27 @@ static int ohci_restart (struct ohci_hcd *ohci)
 	}
 	return 0;
 }
-#endif
+
+/*-------------------------------------------------------------------------*/
+
+/* NEC workaround */
+static void ohci_quirk_nec_worker(struct work_struct *work)
+{
+	struct ohci_hcd *ohci = container_of(work, struct ohci_hcd, nec_work);
+	int status;
+
+	status = ohci_init(ohci);
+	if (status != 0) {
+		ohci_err(ohci, "Restarting NEC controller failed "
+			 "in ohci_init, %d\n", status);
+		return;
+	}
+
+	status = ohci_restart(ohci);
+	if (status != 0)
+		ohci_err(ohci, "Restarting NEC controller failed "
+			 "in ohci_restart, %d\n", status);
+}
 
 /*-------------------------------------------------------------------------*/
 
@@ -901,6 +951,10 @@ MODULE_LICENSE ("GPL");
 #include "ohci-pnx4008.c"
 #endif
 
+#ifdef CONFIG_TOSHIBA_TC90416
+#include "ohci-tc90416.c"
+#endif
+
 #if !(defined(CONFIG_PCI) \
       || defined(CONFIG_SA1111) \
       || defined(CONFIG_ARCH_S3C2410) \
@@ -912,6 +966,7 @@ MODULE_LICENSE ("GPL");
       || defined (CONFIG_USB_OHCI_HCD_PPC_SOC) \
       || defined (CONFIG_ARCH_AT91) \
       || defined (CONFIG_ARCH_PNX4008) \
+      || defined (CONFIG_TOSHIBA_TC90416) \
 	)
 #error "missing bus glue for ohci-hcd"
 #endif

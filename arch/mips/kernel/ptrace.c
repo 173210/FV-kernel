@@ -40,6 +40,55 @@
 #include <asm/bootinfo.h>
 #include <asm/reg.h>
 
+#ifdef CONFIG_PTRACE_MMAPENABLE
+#include <asm/io.h>
+#include <asm/cacheflush.h>
+
+static unsigned long get_kvirt_addr(struct task_struct * p, unsigned long ptr)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t pte;
+
+	if (!p || !p->mm || ptr >= TASK_SIZE)
+		return 0;
+
+	/* Check for NULL pgd .. shouldn't happen! */
+	if (!p->mm->pgd) {
+		return 0;
+	}
+
+	pgd = pgd_offset(p->mm,ptr);
+	if (pgd_none(*pgd))
+		return 0;
+	if (pgd_bad(*pgd)) {
+		return 0;
+	}
+
+	pud = pud_offset(pgd,ptr);
+
+	if (pud_none(*pud))
+		return 0;
+	if (pud_bad(*pud)) {
+		return 0;
+	}
+
+	pmd = pmd_offset(pud,ptr);
+
+	if (pmd_none(*pmd))
+		return 0;
+	if (pmd_bad(*pmd)) {
+		return 0;
+	}
+
+	pte = *pte_offset(pmd,ptr);
+	if (!pte_present(pte))
+		return 0;
+
+	return (unsigned int)(pte_val(pte) & PAGE_MASK);
+}
+#endif
 /*
  * Called by kernel/ptrace.c when detaching..
  *
@@ -182,7 +231,27 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 		copied = access_process_vm(child, addr, &tmp, sizeof(tmp), 0);
 		ret = -EIO;
 		if (copied != sizeof(tmp))
-			break;
+#ifdef CONFIG_PTRACE_MMAPENABLE
+		{
+			unsigned long tmpptr;
+			tmpptr = get_kvirt_addr(child, addr);
+			if (tmpptr) {
+				void __iomem *mapaddr =
+					ioremap(tmpptr + (addr & ~PAGE_MASK),
+						sizeof(tmp));
+				if (mapaddr) {
+					__flush_cache_all();
+					tmp = __raw_readl(mapaddr);
+					iounmap(mapaddr);
+				} else
+					break;
+			} else {
+				break;
+			}
+		}
+#else
+		break;
+#endif
 		ret = put_user(tmp,(unsigned long __user *) data);
 		break;
 	}
@@ -473,6 +542,12 @@ static inline int audit_arch(void)
  */
 asmlinkage void do_syscall_trace(struct pt_regs *regs, int entryexit)
 {
+	if (!entryexit)
+		MARK(kernel_arch_syscall_entry, "%d %ld", 
+			(int)regs->regs[2], instruction_pointer(regs));
+	else
+		MARK(kernel_arch_syscall_exit, MARK_NOARGS);
+
 	if (unlikely(current->audit_context) && entryexit)
 		audit_syscall_exit(AUDITSC_RESULT(regs->regs[2]),
 		                   regs->regs[2]);

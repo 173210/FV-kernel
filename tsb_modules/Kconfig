@@ -1,0 +1,9 @@
+#
+# Toshiba Module Configuration
+#
+
+menu "Toshiba Module"
+
+source "tsb_modules/char/Kconfig"
+
+endmenu

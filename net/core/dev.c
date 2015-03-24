@@ -1453,6 +1453,8 @@ int dev_queue_xmit(struct sk_buff *skb)
 	      		goto out_kfree_skb;
 
 gso:
+	MARK(net_dev_xmit, "%p %2b", skb, skb->protocol);
+
 	spin_lock_prefetch(&dev->queue_lock);
 
 	/* Disable soft irqs for various locks below. Also 
@@ -1784,6 +1786,8 @@ int netif_receive_skb(struct sk_buff *skb)
 		return NET_RX_DROP;
 
 	__get_cpu_var(netdev_rx_stat).total++;
+
+	MARK(net_dev_receive, "%p %2b", skb, skb->protocol);
 
 	skb->h.raw = skb->nh.raw = skb->data;
 	skb->mac_len = skb->nh.raw - skb->mac.raw;

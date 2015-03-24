@@ -31,6 +31,7 @@
 #include <linux/cpu.h>
 #include <linux/moduleparam.h>
 #include <linux/errno.h>
+#include <linux/marker.h>
 #include <linux/err.h>
 #include <linux/vermagic.h>
 #include <linux/notifier.h>
@@ -138,6 +139,8 @@ extern const unsigned long __start___kcrctab_gpl[];
 extern const unsigned long __start___kcrctab_gpl_future[];
 extern const unsigned long __start___kcrctab_unused[];
 extern const unsigned long __start___kcrctab_unused_gpl[];
+extern const struct __mark_marker __start___markers[];
+extern const struct __mark_marker __stop___markers[];
 
 #ifndef CONFIG_MODVERSIONS
 #define symversion(base, idx) NULL
@@ -297,6 +300,229 @@ static struct module *find_module(const char *name)
 	}
 	return NULL;
 }
+
+#ifdef CONFIG_MARKERS
+
+/* Empty callback provided as a probe to the markers. By providing this to a
+ * disabled marker, we makes sure the  execution flow is always valid even
+ * though the function pointer change and the marker enabling are two distinct
+ * operations that modifies the execution flow of preemptible code. */
+void __mark_empty_function(const struct __mark_marker_data *mdata,
+	const char *fmt, ...)
+{
+}
+EXPORT_SYMBOL_GPL(__mark_empty_function);
+
+/* Set the enable bit of the marker, choosing the generic or architecture
+ * specific functions depending on the marker's flags.
+ */
+static int marker_set_enable(void *address, char enable, int flags)
+{
+	if (flags & _MF_OPTIMIZED)
+		return marker_optimized_set_enable(address, enable);
+	else
+		return marker_generic_set_enable(address, enable);
+}
+
+/* Sets the probe callback and enables the markers corresponding to a range of
+ * markers. The enable bit and function address are set out of order, and it's
+ * ok : the state is always coherent because of the empty callback we provide.
+ */
+static int _marker_set_probe_range(int flags, const char *name,
+	const char *format,
+	marker_probe_func *probe,
+	void *pdata,
+	const struct __mark_marker *begin,
+	const struct __mark_marker *end)
+{
+	const struct __mark_marker *iter;
+	int found = 0;
+
+	for (iter = begin; iter < end; iter++) {
+		if (strcmp(name, iter->mdata->name) == 0) {
+			if (format
+				&& strcmp(format, iter->mdata->format) != 0) {
+				printk(KERN_NOTICE
+					"Format mismatch for probe %s "
+					"(%s), marker (%s)\n",
+					name,
+					format,
+					iter->mdata->format);
+				continue;
+			}
+			if (flags & _MF_LOCKDEP
+				&& !(iter->mdata->flags & _MF_LOCKDEP)) {
+					printk(KERN_NOTICE
+					"Incompatible lockdep flags for "
+					"probe %s\n",
+					name);
+					continue;
+			}
+			if (flags & _MF_PRINTK
+				&& !(iter->mdata->flags & _MF_PRINTK)) {
+					printk(KERN_NOTICE
+					"Incompatible printk flags for "
+					"probe %s\n",
+					name);
+					continue;
+			}
+			if (probe == __mark_empty_function) {
+				if (iter->mdata->call
+					!= __mark_empty_function) {
+					iter->mdata->call =
+						__mark_empty_function;
+				}
+				marker_set_enable(iter->enable, 0,
+					iter->mdata->flags);
+			} else {
+				if (iter->mdata->call
+					!= __mark_empty_function) {
+					if (iter->mdata->call != probe) {
+						printk(KERN_NOTICE
+							"Marker %s busy, "
+							"probe %p already "
+							"installed\n",
+							name,
+							iter->mdata->call);
+						continue;
+					}
+				} else {
+					found++;
+					iter->mdata->call = probe;
+				}
+				iter->mdata->pdata = pdata;
+				smp_wmb();
+				marker_set_enable(iter->enable, 1,
+					iter->mdata->flags);
+			}
+			found++;
+		}
+	}
+	return found;
+}
+
+/* Sets a range of markers to a disabled state : unset the enable bit and
+ * provide the empty callback. */
+static int marker_remove_probe_range(const char *name,
+	const struct __mark_marker *begin,
+	const struct __mark_marker *end)
+{
+	const struct __mark_marker *iter;
+	int found = 0;
+
+	for (iter = begin; iter < end; iter++) {
+		if (strcmp(name, iter->mdata->name) == 0) {
+			marker_set_enable(iter->enable, 0,
+				iter->mdata->flags);
+			iter->mdata->call = __mark_empty_function;
+			found++;
+		}
+	}
+	return found;
+}
+
+/* Provides a listing of the markers present in the kernel with their type
+ * (optimized or generic), state (enabled or disabled), callback and format
+ * string. */
+static int marker_list_probe_range(marker_probe_func *probe,
+	const struct __mark_marker *begin,
+	const struct __mark_marker *end)
+{
+	const struct __mark_marker *iter;
+	int found = 0;
+
+	for (iter = begin; iter < end; iter++) {
+		if (probe)
+			if (probe != iter->mdata->call) continue;
+		printk("name %s \n", iter->mdata->name);
+		if (iter->mdata->flags & _MF_OPTIMIZED)
+			printk("  enable %u optimized ",
+				MARK_OPTIMIZED_ENABLE(iter->enable));
+		else
+			printk("  enable %u generic ",
+				MARK_GENERIC_ENABLE(iter->enable));
+		printk("  func 0x%p format \"%s\"\n",
+			iter->mdata->call, iter->mdata->format);
+		found++;
+	}
+	return found;
+}
+
+/* Calls _marker_set_probe_range for the core markers and modules markers.
+ * Marker enabling/disabling use the modlist_lock to synchronise. */
+int _marker_set_probe(int flags, const char *name, const char *format,
+				marker_probe_func *probe,
+				void *pdata)
+{
+	struct module *mod;
+	int found = 0;
+
+	mutex_lock(&module_mutex);
+	/* Core kernel markers */
+	found += _marker_set_probe_range(flags, name, format, probe,
+			pdata,	
+			__start___markers, __stop___markers);
+	/* Markers in modules. */
+	list_for_each_entry(mod, &modules, list) {
+		if (!mod->taints)
+			found += _marker_set_probe_range(flags, name, format,
+			probe, pdata,
+			mod->markers, mod->markers+mod->num_markers);
+	}
+	mutex_unlock(&module_mutex);
+	return found;
+}
+EXPORT_SYMBOL_GPL(_marker_set_probe);
+
+/* Calls _marker_remove_probe_range for the core markers and modules markers.
+ * Marker enabling/disabling use the modlist_lock to synchronise. */
+int marker_remove_probe(const char *name)
+{
+	struct module *mod;
+	int found = 0;
+
+	mutex_lock(&module_mutex);
+	/* Core kernel markers */
+	found += marker_remove_probe_range(name,
+			__start___markers, __stop___markers);
+	/* Markers in modules. */
+	list_for_each_entry(mod, &modules, list) {
+		if (!mod->taints)
+			found += marker_remove_probe_range(name,
+				mod->markers, mod->markers+mod->num_markers);
+	}
+	mutex_unlock(&module_mutex);
+	return found;
+}
+EXPORT_SYMBOL_GPL(marker_remove_probe);
+
+/* Calls _marker_list_probe_range for the core markers and modules markers.
+ * Marker listing uses the modlist_lock to synchronise.
+ * TODO : should output this listing to a procfs file. */
+int marker_list_probe(marker_probe_func *probe)
+{
+	struct module *mod;
+	int found = 0;
+
+	mutex_lock(&module_mutex);
+	/* Core kernel markers */
+	printk("Listing kernel markers\n");
+	found += marker_list_probe_range(probe,
+			__start___markers, __stop___markers);
+	/* Markers in modules. */
+	printk("Listing module markers\n");
+	list_for_each_entry(mod, &modules, list) {
+		if (!mod->taints) {
+			printk("Listing markers for module %s\n", mod->name);
+			found += marker_list_probe_range(probe,
+				mod->markers, mod->markers+mod->num_markers);
+		}
+	}
+	mutex_unlock(&module_mutex);
+	return found;
+}
+EXPORT_SYMBOL_GPL(marker_list_probe);
+#endif
 
 #ifdef CONFIG_SMP
 /* Number of blocks used and allocated. */
@@ -888,7 +1114,9 @@ static int check_version(Elf_Shdr *sechdrs,
 		       mod->name, symname);
 		DEBUGP("Found checksum %lX vs module %lX\n",
 		       *crc, versions[i].crc);
+#ifndef CONFIG_MODULE_FORCE_LOAD
 		return 0;
+#endif
 	}
 	/* Not in module's version table.  OK, but that taints the kernel. */
 	if (!(tainted & TAINT_FORCED_MODULE))
@@ -916,7 +1144,16 @@ static inline int same_magic(const char *amagic, const char *bmagic)
 {
 	amagic += strcspn(amagic, " ");
 	bmagic += strcspn(bmagic, " ");
+#ifdef CONFIG_MODULE_FORCE_LOAD
+	if ( strcmp(amagic, bmagic) != 0 ) {
+		printk(KERN_ERR "version magic '%s' should be '%s'\n",
+		       amagic, bmagic);
+		
+	}
+	return 1;
+#else
 	return strcmp(amagic, bmagic) == 0;
+#endif
 }
 #else
 static inline int check_version(Elf_Shdr *sechdrs,
@@ -937,7 +1174,16 @@ static inline int check_modstruct_version(Elf_Shdr *sechdrs,
 
 static inline int same_magic(const char *amagic, const char *bmagic)
 {
+#ifdef CONFIG_MODULE_FORCE_LOAD
+	if ( strcmp(amagic, bmagic) != 0 ) {
+		printk(KERN_ERR "version magic '%s' should be '%s'\n",
+		       amagic, bmagic);
+		
+	}
+	return 1;
+#else
 	return strcmp(amagic, bmagic) == 0;
+#endif 
 }
 #endif /* CONFIG_MODVERSIONS */
 
@@ -1182,6 +1428,8 @@ static int __unlink_module(void *_mod)
 /* Free a module, remove from lists, etc (must hold module mutex). */
 static void free_module(struct module *mod)
 {
+	MARK(kernel_module_free, "%s", mod->name);
+
 	/* Delete from various lists */
 	stop_machine_run(__unlink_module, mod, NR_CPUS);
 	remove_sect_attrs(mod);
@@ -1561,6 +1809,9 @@ static struct module *load_module(void __user *umod,
 	unsigned int unusedcrcindex;
 	unsigned int unusedgplindex;
 	unsigned int unusedgplcrcindex;
+	unsigned int markersindex;
+	unsigned int markersdataindex;
+	unsigned int markersstringsindex;
 	struct module *mod;
 	long err = 0;
 	void *percpu = NULL, *ptr = NULL; /* Stops spurious gcc warning */
@@ -1657,6 +1908,10 @@ static struct module *load_module(void __user *umod,
 #ifdef ARCH_UNWIND_SECTION_NAME
 	unwindex = find_sec(hdr, sechdrs, secstrings, ARCH_UNWIND_SECTION_NAME);
 #endif
+	markersindex = find_sec(hdr, sechdrs, secstrings, "__markers");
+	markersdataindex = find_sec(hdr, sechdrs, secstrings, "__markers_data");
+	markersstringsindex = find_sec(hdr, sechdrs, secstrings,
+				"__markers_strings");
 
 	/* Don't keep modinfo section */
 	sechdrs[infoindex].sh_flags &= ~(unsigned long)SHF_ALLOC;
@@ -1667,6 +1922,22 @@ static struct module *load_module(void __user *umod,
 #endif
 	if (unwindex)
 		sechdrs[unwindex].sh_flags |= SHF_ALLOC;
+#ifdef CONFIG_MARKERS
+	if (markersindex)
+		sechdrs[markersindex].sh_flags |= SHF_ALLOC;
+	if (markersdataindex)
+		sechdrs[markersdataindex].sh_flags |= SHF_ALLOC;
+	if (markersstringsindex)
+		sechdrs[markersstringsindex].sh_flags |= SHF_ALLOC;
+#else
+	if (markersindex)
+		sechdrs[markersindex].sh_flags &= ~(unsigned long)SHF_ALLOC;
+	if (markersdataindex)
+		sechdrs[markersdataindex].sh_flags &= ~(unsigned long)SHF_ALLOC;
+	if (markersstringsindex)
+		sechdrs[markersstringsindex].sh_flags
+					&= ~(unsigned long)SHF_ALLOC;
+#endif
 
 	/* Check module struct version now, before we try to use module. */
 	if (!check_modstruct_version(sechdrs, versindex, mod)) {
@@ -1803,6 +2074,11 @@ static struct module *load_module(void __user *umod,
 	mod->gpl_future_syms = (void *)sechdrs[gplfutureindex].sh_addr;
 	if (gplfuturecrcindex)
 		mod->gpl_future_crcs = (void *)sechdrs[gplfuturecrcindex].sh_addr;
+	if (markersindex) {
+		mod->markers = (void *)sechdrs[markersindex].sh_addr;
+		mod->num_markers =
+			sechdrs[markersindex].sh_size / sizeof(*mod->markers);
+	}
 
 	mod->unused_syms = (void *)sechdrs[unusedindex].sh_addr;
 	if (unusedcrcindex)
@@ -1915,6 +2191,8 @@ static struct module *load_module(void __user *umod,
 
 	/* Get rid of temporary copy */
 	vfree(hdr);
+
+	MARK(kernel_module_load, "%s", mod->name);
 
 	/* Done! */
 	return mod;
@@ -2242,6 +2520,26 @@ const struct seq_operations modules_op = {
 	.stop	= m_stop,
 	.show	= m_show
 };
+
+void list_modules(void)
+{
+	/* Enumerate loaded modules */
+	struct list_head	*i;
+	struct module		*mod;
+	unsigned long refcount = 0;
+
+	mutex_lock(&module_mutex);
+	list_for_each(i, &modules) {
+		mod = list_entry(i, struct module, list);
+#ifdef CONFIG_MODULE_UNLOAD
+		refcount = local_read(&mod->ref[0].count);
+#endif //CONFIG_MODULE_UNLOAD
+		MARK(list_module, "%s %d %lu",
+				mod->name, mod->state, refcount);
+	}
+	mutex_unlock(&module_mutex);
+}
+EXPORT_SYMBOL_GPL(list_modules);
 
 /* Given an address, look for it in the module exception tables. */
 const struct exception_table_entry *search_module_extables(unsigned long addr)

@@ -43,7 +43,29 @@ UTS_MACHINE		:= mips64
 endif
 
 ifdef CONFIG_CROSSCOMPILE
+ifndef CROSS_COMPILE
 CROSS_COMPILE		:= $(tool-prefix)
+endif
+endif
+
+ifdef CONFIG_CELINUX2TOOL
+ifdef CONFIG_CPU_LITTLE_ENDIAN
+CROSS_COMPILE		:= mipsel-ce2-linux-
+else
+CROSS_COMPILE		:= mips-ce2-linux-
+endif
+endif
+
+ifdef CONFIG_CELINUX3TOOL
+ifdef CONFIG_CPU_LITTLE_ENDIAN
+CROSS_COMPILE		:= mipsel-ce3-linux-
+else
+ifdef CONFIG_CPU_MIPS32_R2
+CROSS_COMPILE		:= mips-ce3m-linux-
+else
+CROSS_COMPILE		:= mips-ce3-linux-
+endif
+endif
 endif
 
 ifdef CONFIG_32BIT
@@ -603,6 +625,31 @@ core-$(CONFIG_TOSHIBA_RBTX4938) += arch/mips/tx4938/toshiba_rbtx4938/
 core-$(CONFIG_TOSHIBA_RBTX4938) += arch/mips/tx4938/common/
 load-$(CONFIG_TOSHIBA_RBTX4938) += 0xffffffff80100000
 
+#
+# TX-RISC boards
+#
+libs-$(CONFIG_TX_BOARDS) += arch/mips/tx-boards/generic/
+cflags-$(CONFIG_CPU_TX49XX)	+= -Iinclude/asm-mips/mach-tx
+cflags-$(CONFIG_CPU_MIPS32_R2)	+= -Iinclude/asm-mips/mach-mips
+ifdef CONFIG_TOSHIBA_TSBLDADR
+ifdef CONFIG_YAMON_BOOT
+load-$(CONFIG_TX_BOARDS)	+= 0xffffffff80100000
+else
+ifdef CONFIG_PMON_RAMBOOT
+ifdef CONFIG_PMON_RAMBOOT_LOADADDR
+load-$(CONFIG_TX_BOARDS)	+= CONFIG_PMON_RAMBOOT_LOADADDR
+else
+load-$(CONFIG_TX_BOARDS)	+= 0xffffffff80200000
+endif
+else
+load-$(CONFIG_TX_BOARDS)	+= 0xffffffff80040000
+endif
+endif
+else
+load-$(CONFIG_TX_BOARDS)	+= 0xffffffff80100000
+endif
+core-$(CONFIG_TOSHIBA_TC90416) += arch/mips/tx-boards/tc90416/
+
 cflags-y			+= -Iinclude/asm-mips/mach-generic
 drivers-$(CONFIG_PCI)		+= arch/mips/pci/
 
@@ -638,11 +685,20 @@ OBJCOPYFLAGS		+= --remove-section=.reginfo
 # none has been choosen above.
 #
 
+ifeq ($(CONFIG_XIP_KERNEL),y)
+CPPFLAGS_vmlinux.lds := \
+	$(CFLAGS) \
+	-D"LOADADDR=$(CONFIG_XIP_VIRT_ADDR)" \
+	-D"DATAADDR=$(load-y)" \
+	-D"JIFFIES=$(JIFFIES)" \
+	-D"DATAOFFSET=$(if $(dataoffset-y),$(dataoffset-y),0)"
+else
 CPPFLAGS_vmlinux.lds := \
 	$(CFLAGS) \
 	-D"LOADADDR=$(load-y)" \
 	-D"JIFFIES=$(JIFFIES)" \
 	-D"DATAOFFSET=$(if $(dataoffset-y),$(dataoffset-y),0)"
+endif
 
 head-y := arch/mips/kernel/head.o arch/mips/kernel/init_task.o
 
@@ -653,6 +709,8 @@ libs-$(CONFIG_64BIT)	+= arch/mips/lib-64/
 core-y			+= arch/mips/kernel/ arch/mips/mm/ arch/mips/math-emu/
 
 drivers-$(CONFIG_OPROFILE)	+= arch/mips/oprofile/
+
+drivers-y		+= tsb_modules/
 
 ifdef CONFIG_LASAT
 rom.bin rom.sw: vmlinux
@@ -704,6 +762,14 @@ ifdef CONFIG_SNI_RM
 all:	vmlinux.ecoff
 endif
 
+ifdef CONFIG_TX_BOARDS
+ifdef CONFIG_YAMON_BOOT
+all:	vmlinux.srec
+else
+all:	vmlinux.elf
+endif
+endif
+
 vmlinux.bin: $(vmlinux-32)
 	+@$(call makeboot,$@)
 
@@ -711,6 +777,12 @@ vmlinux.ecoff: $(vmlinux-32)
 	+@$(call makeboot,$@)
 
 vmlinux.srec: $(vmlinux-32)
+	+@$(call makeboot,$@)
+
+vmlinux.elf: $(vmlinux-32)
+	+@$(call makeboot,$@)
+
+xipImage: $(vmlinux-32)
 	+@$(call makeboot,$@)
 
 CLEAN_FILES += vmlinux.ecoff \

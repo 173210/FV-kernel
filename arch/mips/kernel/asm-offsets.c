@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/interrupt.h>
+#include <linux/suspend.h>
 
 #include <asm/ptrace.h>
 #include <asm/processor.h>
@@ -334,5 +335,15 @@ void output_irq_cpustat_t_defines(void)
 	text("/* Linux irq_cpustat_t offsets. */");
 	offset("#define IC_SOFTIRQ_PENDING ", irq_cpustat_t, __softirq_pending);
 	size("#define IC_IRQ_CPUSTAT_T   ", irq_cpustat_t);
+	linefeed;
+}
+
+void output_pbe_defines(void)
+{
+	text("/* Linux struct pbe offsets. */");
+	offset("#define PBE_ADDRESS        ", struct pbe, address);
+	offset("#define PBE_ORIG_ADDRESS   ", struct pbe, orig_address);
+	offset("#define PBE_NEXT           ", struct pbe, next);
+	size("#define PBE_SIZE           ", struct pbe);
 	linefeed;
 }

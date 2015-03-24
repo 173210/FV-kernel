@@ -98,7 +98,16 @@
 		__fast_iob();			\
 	} while (0)
 
-#ifdef CONFIG_CPU_HAS_WB
+#ifdef CONFIG_CPU_HAS_OOO_MEMACCESS
+
+#include <memory_barrier.h>
+
+#define wmb()		__wmb()
+#define rmb()		__rmb()
+#define mb()		__mb()
+#define iob()		__iob()
+
+#elif defined(CONFIG_CPU_HAS_WB)
 
 #include <asm/wbflush.h>
 

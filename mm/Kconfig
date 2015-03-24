@@ -157,3 +157,7 @@ config RESOURCES_64BIT
 	default 64BIT
 	help
 	  This option allows memory and IO resources to be 64 bit.
+
+config PDFLUSH_RTSCHED
+	bool "Enable real time schedule"
+	default n

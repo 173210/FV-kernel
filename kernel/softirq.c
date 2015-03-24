@@ -227,7 +227,17 @@ restart:
 
 	do {
 		if (pending & 1) {
+			netcpurate_irq_period_start(h - softirq_vec + NR_IRQS);
+			MARK(kernel_softirq_entry, "%lu",
+				((unsigned long)h
+					- (unsigned long)softirq_vec)
+					/ sizeof(*h));
 			h->action(h);
+			MARK(kernel_softirq_exit, "%lu",
+				((unsigned long)h
+					- (unsigned long)softirq_vec)
+					/ sizeof(*h));
+			netcpurate_irq_period_end(h - softirq_vec + NR_IRQS);
 			rcu_bh_qsctr_inc(cpu);
 		}
 		h++;
@@ -384,7 +394,11 @@ static void tasklet_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
+				MARK(kernel_tasklet_low_entry, "%p %lu",
+						t->func, t->data);
 				t->func(t->data);
+				MARK(kernel_tasklet_low_exit, "%p %lu",
+						t->func, t->data);
 				tasklet_unlock(t);
 				continue;
 			}
@@ -417,7 +431,11 @@ static void tasklet_hi_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
+				MARK(kernel_tasklet_high_entry, "%p %lu",
+						t->func, t->data);
 				t->func(t->data);
+				MARK(kernel_tasklet_high_exit, "%p %lu",
+						t->func, t->data);
 				tasklet_unlock(t);
 				continue;
 			}

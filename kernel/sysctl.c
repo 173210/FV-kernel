@@ -869,6 +869,16 @@ static ctl_table vm_table[] = {
 		.mode		= 0444 /* read-only*/,
 		.proc_handler	= &proc_dointvec,
 	},
+#ifdef CONFIG_PDFLUSH_RTSCHED
+	{
+		.ctl_name	= VM_PRIO_PDFLUSH_THREAD,
+		.procname	= "prio_pdflush_thread",
+		.data		= &prio_pdflush_thread,
+		.maxlen		= sizeof prio_pdflush_thread,
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+	},
+#endif
 	{
 		.ctl_name	= VM_SWAPPINESS,
 		.procname	= "swappiness",

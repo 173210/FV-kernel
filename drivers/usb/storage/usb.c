@@ -185,6 +185,52 @@ static struct us_unusual_dev us_unusual_dev_list[] = {
 };
 
 
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT
+#define MAX_PORT_DELAY_NUM   3
+struct port_delay_data {
+	unsigned int port;
+	unsigned int delay_use;
+};
+static int port_delay_idx = 0;
+static struct port_delay_data port_delay[MAX_PORT_DELAY_NUM];
+static __initdata char port_delay_str[64];
+module_param_string(port_delay_use, port_delay_str, sizeof(port_delay_str), 0);
+MODULE_PARM_DESC(port_delay_use, 
+		 "seconds to delay before using a new device connected to the specific port on root-hub");
+
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB
+static unsigned int hub_level = CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB_LEVEL;
+module_param(hub_level, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(hub_level, "enable port_delay_use hub level");
+#endif
+
+static void parse_port_delay_use(void)
+{
+	int num;
+	int port, port_delay_val;
+	char *str = port_delay_str;
+
+	if (!strlen(str))
+		return;
+
+	memset(port_delay, 0, sizeof(port_delay));
+
+	while (str != NULL && port_delay_idx < MAX_PORT_DELAY_NUM) {
+		num = sscanf(str, "%d:%d", &port, &port_delay_val);
+		if (num != 2 || !port) {
+			printk(KERN_INFO "Invalid parameters in port_delay_use option.\n");
+			return;
+		}
+		port_delay[port_delay_idx].port = port;
+		port_delay[port_delay_idx].delay_use = port_delay_val;
+		port_delay_idx++;
+		str = strchr(str, ',');
+		if (str != NULL)
+			str++;
+	}
+}
+#endif
+
 #ifdef CONFIG_PM	/* Minimal support for suspend and resume */
 
 static int storage_suspend(struct usb_interface *iface, pm_message_t message)
@@ -300,6 +346,12 @@ static int usb_stor_control_thread(void * __us)
 {
 	struct us_data *us = (struct us_data *)__us;
 	struct Scsi_Host *host = us_to_host(us);
+#ifdef CONFIG_USB_RTSCHED
+	struct sched_param param = {
+		.sched_priority = CONFIG_USB_RTSCHED_PRIO
+	};
+	sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
 
 	current->flags |= PF_NOFREEZE;
 
@@ -904,11 +956,65 @@ static void release_everything(struct us_data *us)
 static int usb_stor_scan_thread(void * __us)
 {
 	struct us_data *us = (struct us_data *)__us;
+#ifdef CONFIG_USB_RTSCHED
+	struct sched_param param = {
+		.sched_priority = CONFIG_USB_RTSCHED_PRIO + CONFIG_USB_RTSCHED_PRIO_SUB
+	};
+	sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
 
 	printk(KERN_DEBUG
 		"usb-storage: device found at %d\n", us->pusb_dev->devnum);
 
 	/* Wait for the timeout to expire or for a disconnect */
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT
+	{
+		int delay_time = delay_use;
+		struct usb_device *udev = us->pusb_dev;
+		struct usb_device *parent = udev->parent;
+
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB
+		int level;
+		for ( level = 0; level < hub_level; level++ ) {
+			if ( parent->parent ) 
+				parent = parent->parent;
+			else
+				break;
+		}
+		if ((level == hub_level) && (parent && parent->devpath[0] == '0'))
+#else
+		if (parent->devpath[0] == '0')
+#endif
+		{
+			int i, port;
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT_HUB
+			port = us->pusb_dev->portnum;
+#else
+			char *tmp;
+
+			port = (int)simple_strtoul(udev->devpath, &tmp, 10);
+#endif
+
+			for (i = 0 ; i < port_delay_idx ; i++) {
+				if (port_delay[i].port == port) {
+					delay_time = port_delay[i].delay_use;
+					break;
+				}
+			}
+		}
+
+		if (delay_time > 0) {
+			printk(KERN_DEBUG "usb-storage: waiting for device "
+			       "to settle before scanning\n");
+retry:
+			wait_event_interruptible_timeout(us->delay_wait,
+							 test_bit(US_FLIDX_DISCONNECTING, &us->flags),
+							 delay_time * HZ);
+			if (try_to_freeze())
+				goto retry;
+		}
+	}
+#else
 	if (delay_use > 0) {
 		printk(KERN_DEBUG "usb-storage: waiting for device "
 				"to settle before scanning\n");
@@ -919,6 +1025,7 @@ retry:
 		if (try_to_freeze())
 			goto retry;
 	}
+#endif
 
 	/* If the device is still connected, perform the scanning */
 	if (!test_bit(US_FLIDX_DISCONNECTING, &us->flags)) {
@@ -966,6 +1073,10 @@ static int storage_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
+	/*
+	 * Allow 16-byte CDBs and thus > 2TB
+	 */
+	host->max_cmd_len = 16;
 	us = host_to_us(host);
 	memset(us, 0, sizeof(struct us_data));
 	mutex_init(&(us->dev_mutex));
@@ -1069,6 +1180,9 @@ static int __init usb_stor_init(void)
 	int retval;
 	printk(KERN_INFO "Initializing USB Mass Storage driver...\n");
 
+#ifdef CONFIG_USB_STORAGE_DELAY_USE_ENHANCEMENT
+	parse_port_delay_use();
+#endif
 	/* register the driver, return usb_register return code if error */
 	retval = usb_register(&usb_storage_driver);
 	if (retval == 0) {

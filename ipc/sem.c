@@ -296,6 +296,7 @@ asmlinkage long sys_semget (key_t key, int nsems, int semflg)
 	}
 
 	mutex_unlock(&sem_ids(ns).mutex);
+	MARK(ipc_sem_create, "%d %d", err, semflg);
 	return err;
 }
 

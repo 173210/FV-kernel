@@ -1,0 +1,144 @@
+config TX_RBTX4927
+	bool "Support for TX RBTX4927"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+
+config TX_RBTX4938
+	bool "Support for TX RBTX4938"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+
+config TX_RBTX4939
+	bool "Support for TX RBTX4939"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+
+config TOSHIBA_TC90411
+	bool "Support for Toshiba TC90411 Board"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+	select TOSHIBA_TSBLDADR
+
+config TOSHIBA_TC90411_USBHC_WORKAROUND
+	bool "Enable TC90411 USBHC Workaround"
+	depends on TOSHIBA_TC90411
+
+config TOSHIBA_OPBD4938
+	bool "Support for Toshiba OPBD4938"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+	select TOSHIBA_TSBLDADR
+
+config TOSHIBA_OPBD4939
+	bool "Support for Toshiba OPBD4939"
+	depends on TX_BOARDS
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+	select TOSHIBA_TSBLDADR
+
+config TOSHIBA_TC90412
+	bool "Support for Toshiba TC90412 Board"
+	select SYS_HAS_CPU_TX49XX
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select HAS_TXX9_SERIAL
+	select TOSHIBA_TSBLDADR
+	select TXBOARD_CPU_SCACHE
+
+config TOSHIBA_TC90416
+	bool "Support for Toshiba TC90416 Board"
+	select SYS_HAS_CPU_MIPS32_R2
+	select HAS_TXX9_SERIAL
+	select TOSHIBA_TSBLDADR
+
+config TOSHIBA_TC90490
+	bool "Support for Toshiba TC90490 Chip"
+	depends on TOSHIBA_TC90411 || TOSHIBA_TC90412
+
+config TICK_BY_TXTMR0
+	bool "Tick by TX subsystem TMR module Timer-0"
+	depends on TOSHIBA_TC90416
+
+config TOSHIBA_TSBLDADR
+	bool
+
+choice
+	prompt "Optional load address settings"
+	optional
+	depends on TOSHIBA_TSBLDADR
+
+config YAMON_BOOT
+	bool "Use YAMON as bootloader (load address 0x80100000)"
+	depends on TOSHIBA_TSBLDADR
+
+config PMON_RAMBOOT
+	bool "Use PMON booting from RAM"
+	depends on TOSHIBA_TSBLDADR
+
+endchoice
+
+config PMON_RAMBOOT_LOADADDR
+	hex "Kernel load address on PMON RAM boot"
+	depends on PMON_RAMBOOT
+	default 0xffffffff80200000
+
+config PMON_RAMBOOT_PMONADDR
+	hex "PMON base address on PMON RAM boot"
+	depends on PMON_RAMBOOT
+	default 0x80100000
+
+config REMOTE_PCI
+	bool "Support remote PCI on OPBD493X"
+	depends on TOSHIBA_TC90411 && (TOSHIBA_OPBD4938 || TOSHIBA_OPBD4939)
+	select PCIMEM_PHYSOFFSET if TOSHIBA_OPBD4938 || TOSHIBA_OPBD4939
+
+config REMOTE_PCI_NATSEMI
+	bool "Use DP8381x from OPBD"
+	depends on REMOTE_PCI
+	depends on NATSEMI
+	default n
+
+config REMOTE_PCI_8139TOO
+	bool "Use 8139too from OPBD"
+	depends on REMOTE_PCI
+	depends on 8139TOO
+	default n
+
+config REMOTE_PCI_VIA
+	bool "Use VIA Rhine from Remote"
+	depends on REMOTE_PCI && VIA_RHINE
+	default n
+
+config REMOTE_PCI_USBHC
+	bool "Use USBHC from Remote"
+	depends on REMOTE_PCI && USB
+	default y
+
+config PCI_NOPROBE_OFFBOARD
+	bool "Do not probe offboard PCI devices by default"
+	depends on TOSHIBA_OPBD4938 || TOSHIBA_OPBD4939
+
+config PICMG_PCI_BACKPLANE_DEFAULT
+	bool "Support for PICMG PCI Backplane"
+	depends on TX_BOARDS
+
+config TOSHIBA_UART_TYPE
+	int "UART channel type"
+	range 0 2
+	default "0"
+	depends on TOSHIBA_TC90411 || TOSHIBA_TC90412 || TOSHIBA_TC90416
+
+config ENABLE_INITRD_BY_LOADFROM
+	bool "Enable initrd by load_from env from pmon"
+	depends on TX_BOARDS
+	default n

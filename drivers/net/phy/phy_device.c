@@ -343,7 +343,7 @@ EXPORT_SYMBOL(genphy_config_advert);
  *   Please see phy_sanitize_settings() */
 int genphy_setup_forced(struct phy_device *phydev)
 {
-	int ctl = BMCR_RESET;
+	int ctl = 0;
 
 	phydev->pause = phydev->asym_pause = 0;
 

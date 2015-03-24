@@ -94,6 +94,15 @@ ohci_pci_start (struct usb_hcd *hcd)
 				"enabled Compaq ZFMicro chipset quirk\n");
 		}
 
+		/* NEC uPD720100A/uPD720101 sometimes fail the register write...
+		 *   so enable the vendor specific workaround.
+		 */
+		else if (pdev->vendor == PCI_VENDOR_ID_NEC
+				&& pdev->device == PCI_DEVICE_ID_NEC_USB) {
+			ohci->flags = OHCI_QUIRK_NEC;
+			ohci_info (ohci, "NEC uPD720100A/uPD720101 workarounds are enabled.\n");
+		}
+
 		/* RWC may not be set for add-in PCI cards, since boot
 		 * firmware probably ignored them.  This transfers PCI
 		 * PM wakeup capabilities (once the PCI layer is fixed).
@@ -152,7 +161,7 @@ static int ohci_pci_suspend (struct usb_hcd *hcd, pm_message_t message)
 static int ohci_pci_resume (struct usb_hcd *hcd)
 {
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
-	usb_hcd_resume_root_hub(hcd);
+ 	ohci_finish_controller_resume(hcd);
 	return 0;
 }
 
@@ -203,7 +212,6 @@ static const struct hc_driver ohci_pci_hc_driver = {
 	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
-	.hub_irq_enable =	ohci_rhsc_enable,
 #ifdef	CONFIG_PM
 	.bus_suspend =		ohci_bus_suspend,
 	.bus_resume =		ohci_bus_resume,

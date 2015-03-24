@@ -1,7 +1,7 @@
 #ifndef _LINUX_SWSUSP_H
 #define _LINUX_SWSUSP_H
 
-#if defined(CONFIG_X86) || defined(CONFIG_FRV) || defined(CONFIG_PPC32)
+#ifdef CONFIG_SOFTWARE_SUSPEND
 #include <asm/suspend.h>
 #endif
 #include <linux/swap.h>

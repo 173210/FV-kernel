@@ -1,0 +1,47 @@
+#
+# Toshiba Module Configuration
+#
+
+config UDIRECT
+	tristate "User Direct Driver"
+	depends on TOSHIBA_TC90411 || TOSHIBA_TC90412 || TOSHIBA_TC90416
+
+config UAT_UCOM
+	tristate "UART for ucom Driver"
+	depends on TOSHIBA_TC90411 || TOSHIBA_TC90412 || TOSHIBA_TC90416
+
+config UAT_UCOM_CH
+	int "UART channel for ucom Driver" if UAT_UCOM
+	range 0 3
+	default "0"
+	depends on UAT_UCOM
+
+config UAT_UCOM_BAUDRATE
+	int "UART baudrate for ucom Driver" if UAT_UCOM
+	range 9600 960000
+	default "9600"
+	depends on UAT_UCOM
+
+config UAT_UCOM_HEAD_PIN
+	int "Head-pin number for ucom Driver" if UAT_UCOM
+	range 0 59 if TOSHIBA_TC90411
+	range 0 92 if TOSHIBA_TC90412
+	range 0 96 if TOSHIBA_TC90416
+	default "4" if TOSHIBA_TC90411
+	default "62" if TOSHIBA_TC90412
+	default "22" if TOSHIBA_TC90416
+	depends on UAT_UCOM
+
+config UAT_UCOM_MULTI_HEAD
+	bool "Multi header pin support"
+	depends on UAT_UCOM
+	default n
+
+config UAT_UCOM_HEAD_PIN_2ND
+	int "2nd head-pin number for ucom Driver"
+	range 0 59 if TOSHIBA_TC90411
+	range 0 92 if TOSHIBA_TC90412
+	range 0 96 if TOSHIBA_TC90416
+	default "23" if TOSHIBA_TC90416
+	depends on UAT_UCOM_MULTI_HEAD
+

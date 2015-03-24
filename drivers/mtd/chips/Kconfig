@@ -199,6 +199,36 @@ config MTD_CFI_AMDSTD
 	  provides support for one of those command sets, used on chips
 	  including the AMD Am29LV320.
 
+config MTD_CFI_AMDSTD_SECTLOCK_SUPPORT
+	bool "Sector lock/unlock support"
+	depends on MTD_CFI_AMDSTD
+	select MTD_CHAR_MEMISLOCK
+
+config MTD_CFI_AMDSTD_SECTLOCK_ONLY_CHECK
+	bool "Force only check function and disable lock/unlock"
+	default n
+	depends on MTD_CFI_AMDSTD_SECTLOCK_SUPPORT
+
+config MTD_CFI_AMDSTD_ERASE_SUSPEND_CHECK
+	bool "Check address booking for erase suspend"
+	depends on MTD_CFI_AMDSTD
+	default n
+	help 
+	  Check booking between erasing address and reading address before
+	  entering erase-suspend-read mode.
+
+config MTD_CFI_AMDSTD_ERASE_SUSPEND_SKIP_RANGE
+	hex "Skip range for erase suspend"
+	depends on MTD_CFI_AMDSTD_ERASE_SUSPEND_CHECK
+	default "0x20000"
+	help
+	  Hexadecimal. Specify 0x20000 for 128KB (default).
+
+config MTD_CFI_AMDSTD_VERSION_NOCHECK
+	bool "ignore MAJ/MIN version check when chip probe"
+	depends on MTD_CFI_AMDSTD
+	default n
+
 config MTD_CFI_STAA
 	tristate "Support for ST (Advanced Architecture) flash chips"
 	depends on MTD_GEN_PROBE
@@ -207,6 +237,11 @@ config MTD_CFI_STAA
 	  The Common Flash Interface defines a number of different command
 	  sets which a CFI-compliant chip may claim to implement. This code
 	  provides support for one of those command sets.
+
+config MTD_CFI_STAA_VERSION_NOCHECK
+	bool "ignore MAJ/MIN version check when chip probe"
+	depends on MTD_CFI_STAA
+	default n
 
 config MTD_CFI_UTIL
 	tristate

@@ -211,6 +211,7 @@ static inline unsigned long __shrink_memory(long tmp)
 
 int swsusp_shrink_memory(void)
 {
+#ifndef CONFIG_SWSUSP_NO_SHRINK_MEMORY
 	long tmp;
 	struct zone *zone;
 	unsigned long pages = 0;
@@ -256,6 +257,7 @@ int swsusp_shrink_memory(void)
 	do_gettimeofday(&stop);
 	printk("\bdone (%lu pages freed)\n", pages);
 	swsusp_show_speed(&start, &stop, pages, "Freed");
+#endif /* CONFIG_SWSUSP_NO_SHRINK_MEMORY */
 
 	return 0;
 }

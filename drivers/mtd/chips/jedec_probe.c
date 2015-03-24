@@ -27,6 +27,7 @@
 /* Manufacturers */
 #define MANUFACTURER_AMD	0x0001
 #define MANUFACTURER_ATMEL	0x001f
+#define MANUFACTURER_EON	0x001c
 #define MANUFACTURER_FUJITSU	0x0004
 #define MANUFACTURER_HYUNDAI	0x00AD
 #define MANUFACTURER_INTEL	0x0089
@@ -38,6 +39,7 @@
 #define MANUFACTURER_ST		0x0020
 #define MANUFACTURER_TOSHIBA	0x0098
 #define MANUFACTURER_WINBOND	0x00da
+#define CONTINUATION_CODE	0x007f
 
 
 /* AMD */
@@ -67,6 +69,10 @@
 #define AT49BV16XT	0x00C2
 #define AT49BV32X	0x00C8
 #define AT49BV32XT	0x00C9
+
+/* Eon */
+#define EN29LV800CB	0x225B
+#define EN29LV800CT	0x22DA
 
 /* Fujitsu */
 #define MBM29F040C	0x00A4
@@ -147,6 +153,8 @@
 #define SST39LF800	0x2781
 #define SST39LF160	0x2782
 #define SST39VF1601	0x234b
+#define SST39VF3201	0x235b
+#define SST39VF3201B	0x235d
 #define SST39LF512	0x00D4
 #define SST39LF010	0x00D5
 #define SST39LF020	0x00D6
@@ -630,6 +638,40 @@ static const struct amd_flash_info jedec_table[] = {
 		.regions	= {
 			ERASEINFO(0x10000,63),
 			ERASEINFO(0x02000,8)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_EON,
+		.dev_id		= EN29LV800CT,
+		.name		= "Eon EN29LV800CT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+			[1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,15),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_EON,
+		.dev_id		= EN29LV800CB,
+		.name		= "Eon EN29LV800CB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+			[1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,15),
 		}
 	}, {
 		.mfr_id		= MANUFACTURER_FUJITSU,
@@ -1480,6 +1522,20 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x01000,256),
 		}
 	}, {
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39LF800,
+		.name		= "SST 39LF800A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA, /* x8 */
+			[1] = MTD_UADDR_0x5555_0x2AAA  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,256),
+		}
+	}, {
                .mfr_id         = MANUFACTURER_SST,     /* should be CFI */
                .dev_id         = SST39LF160,
                .name           = "SST 39LF160",
@@ -1509,7 +1565,37 @@ static const struct amd_flash_info jedec_table[] = {
                        ERASEINFO(0x1000,256),
                        ERASEINFO(0x1000,256)
                }
-
+	}, {
+               .mfr_id         = MANUFACTURER_SST,     /* should be CFI */
+               .dev_id         = SST39VF3201,
+               .name           = "SST 39VF3201",
+               .uaddr          = {
+                       [0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+                       [1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+               },
+               .DevSize        = SIZE_4MiB,
+               .CmdSet         = P_ID_AMD_STD,
+               .NumEraseRegions= 4,
+               .regions        = {
+                       ERASEINFO(0x1000,256),
+                       ERASEINFO(0x1000,256),
+                       ERASEINFO(0x1000,256),
+                       ERASEINFO(0x1000,256)
+               }
+	}, {
+               .mfr_id         = MANUFACTURER_SST,     /* should be CFI */
+               .dev_id         = SST39VF3201B,
+               .name           = "SST 39VF3201B",
+               .uaddr          = {
+                       [0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+                       [1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+               },
+               .DevSize        = SIZE_4MiB,
+               .CmdSet         = P_ID_AMD_STD,
+               .NumEraseRegions= 1,
+               .regions        = {
+                       ERASEINFO(0x10000,64)
+               }
        }, {
 		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
 		.dev_id		= M29W800DT,
@@ -1769,9 +1855,19 @@ static inline u32 jedec_read_mfr(struct map_info *map, __u32 base,
 {
 	map_word result;
 	unsigned long mask;
-	u32 ofs = cfi_build_cmd_addr(0, cfi_interleave(cfi), cfi->device_type);
-	mask = (1 << (cfi->device_type * 8)) -1;
-	result = map_read(map, base + ofs);
+	int bank = 0;
+
+	/* According to JEDEC "Standard Manufacturer's Identification Code"
+	 * (http://www.jedec.org/download/search/jep106W.pdf)
+	 * several first banks can contain 0x7f instead of actual ID
+	 */
+	do {
+		u32 ofs = cfi_build_cmd_addr(0 + (bank << 8), cfi_interleave(cfi), cfi->device_type);
+		mask = (1 << (cfi->device_type * 8)) -1;
+		result = map_read(map, base + ofs);
+		bank++;
+	} while ((result.x[0] & mask) == CONTINUATION_CODE);
+
 	return result.x[0] & mask;
 }
 

@@ -103,3 +103,29 @@ config USB_OTG_BLACKLIST_HUB
 	  external hubs.  OTG hosts are allowed to reduce hardware
 	  and software costs by not supporting external hubs.
 
+config USB_HUB_ENHANCEMENT
+	bool "USB power management enhancement"
+	depends on USB
+	---help---
+	  If you say Y here, hotplug application will call when over-current
+	  is occured and the power is not enough to configure the connected
+	  device.
+
+config USB_RTSCHED
+	bool "Enable real time schedule"
+	depends on USB
+
+config USB_RTSCHED_PRIO
+	int "Priority setting (default is the lowest priority)"
+	depends on USB && USB_RTSCHED
+	default "1"
+
+config USB_RTSCHED_PRIO_SUB
+	int "SUB Priority setting (RTSCHED_PRIO + alpha) for hub, device scannnig and khelper thrd."
+	depends on USB && USB_RTSCHED
+	default "0"
+
+config USB_TEST_ENHANCEMENT
+	bool "USB test mode management enhancement"
+	depends on USB && USB_HUB_ENHANCEMENT
+	default "N"

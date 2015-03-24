@@ -20,6 +20,7 @@
 #include <linux/module.h>
 #include <linux/net.h>
 #include <linux/kthread.h>
+#include <linux/delay.h>
 #include <net/ip.h>
 
 #include <linux/smb_fs.h>
@@ -28,6 +29,7 @@
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <asm/semaphore.h>
 
 #include "smb_debug.h"
 #include "request.h"
@@ -44,6 +46,7 @@ static struct task_struct *smbiod_thread;
 static DECLARE_WAIT_QUEUE_HEAD(smbiod_wait);
 static LIST_HEAD(smb_servers);
 static DEFINE_SPINLOCK(servers_lock);
+struct semaphore smbiod_loop_sem;
 
 #define SMBIOD_DATA_READY	(1<<0)
 static long smbiod_flags;
@@ -75,6 +78,7 @@ static int smbiod_start(void)
 	smbiod_state = SMBIOD_STARTING;
 	__module_get(THIS_MODULE);
 	spin_unlock(&servers_lock);
+	sema_init(&smbiod_loop_sem, 1);
 	tsk = kthread_run(smbiod, NULL, "smbiod");
 	if (IS_ERR(tsk)) {
 		err = PTR_ERR(tsk);
@@ -319,10 +323,12 @@ static int smbiod(void *unused)
 
 		clear_bit(SMBIOD_DATA_READY, &smbiod_flags);
 
+		smbiod_lock_loop();
 		spin_lock(&servers_lock);
 		if (list_empty(&smb_servers)) {
 			smbiod_state = SMBIOD_DEAD;
 			spin_unlock(&servers_lock);
+			smbiod_unlock_loop();
 			break;
 		}
 
@@ -341,8 +347,18 @@ static int smbiod(void *unused)
 			}
 		}
 		spin_unlock(&servers_lock);
+		smbiod_unlock_loop();
 	}
 
 	VERBOSE("SMB Kernel thread exiting (%d) ...\n", current->pid);
 	module_put_and_exit(0);
+}
+
+void smbiod_lock_loop(void)
+{
+	down(&smbiod_loop_sem);
+}
+void smbiod_unlock_loop(void)
+{
+	up(&smbiod_loop_sem);
 }
