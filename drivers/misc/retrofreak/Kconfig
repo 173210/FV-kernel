@@ -1,0 +1,4 @@
+
+config RETROFREAK_DRIVER
+	bool "RetroFreak driver"
+	default y
